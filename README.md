@@ -1,4 +1,4 @@
-# 🧠 Logic Lab: Simulador de Lógica Proposicional
+# Logic Lab: Simulador de Lógica Proposicional
 
 **Logic Lab** es una herramienta educativa e interactiva diseñada para construir, visualizar y evaluar expresiones de lógica proposicional mediante diagramas de flujo. Permite a los usuarios entender cómo se estructuran las fórmulas complejas y cómo se propagan los valores de verdad a través de un circuito.
 
@@ -7,7 +7,7 @@
 
 ---
 
-## ✨ Características Principales
+## Características Principales
 
 -   **Construcción Visual:** Utiliza `React Flow` para una experiencia fluida de arrastrar y soltar.
 -   **Nodos de Variable Inteligentes:** Configura valores manuales (True/False) que actúan como la raíz del sistema.
@@ -18,7 +18,7 @@
 
 ---
 
-## 🛠️ Especificaciones Técnicas
+## Especificaciones Técnicas
 
 ### El Algoritmo de Conversión (Rastreo Inverso)
 A diferencia de un compilador estándar, este proyecto utiliza un **rastreo inverso desde el nodo de salida**. 
@@ -34,7 +34,7 @@ A diferencia de un compilador estándar, este proyecto utiliza un **rastreo inve
 
 ---
 
-## 🚀 Instalación y Ejecución
+## Instalación y Ejecución
 
 Sigue estos pasos para ejecutar el proyecto en tu entorno local:
 

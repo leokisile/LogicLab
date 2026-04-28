@@ -5,7 +5,7 @@ import { addEdge, applyNodeChanges, applyEdgeChanges, ConnectionLineType } from 
 // Esta línea conecta tu Dominio con el Motor de Propagación
 import { runCalculation } from '../engine/propagationEngine'; 
 
-// Función auxiliar para construir la fórmula de forma recursiva
+// Función auxiliar para construir la fórmula de forma recursiva aaa
 const getFormulaText = (nodes, edges, nodeId) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return "";

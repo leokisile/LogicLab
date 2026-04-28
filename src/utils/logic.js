@@ -9,10 +9,16 @@ export const computeLogic = (operator, inputs) => {
   const a = inputs[0] || 'N';
   const b = inputs[1] || 'N';
 
-  // Si alguno es None, el resultado es None (a menos que definas otra cosa)
-  if (a === 'N' || b === 'N') return 'N';
+  // Solo validamos que AMBOS existan si NO es un NOT
+  if (operator !== 'NOT' && (a === 'N' || b === 'N')) return 'N';
+  // Si es NOT, solo validamos que exista la primera entrada
+  if (operator === 'NOT' && a === 'N') return 'N';
 
   switch (operator) {
+    case 'NOT':
+      if (a === 'B') return 'B';
+      return a === 'T' ? 'F' : 'T';
+
     case 'AND':
       if (a === 'B' || b === 'B') return 'B';
       return (a === 'T' && b === 'T') ? 'T' : 'F';
@@ -21,16 +27,11 @@ export const computeLogic = (operator, inputs) => {
       if (a === 'B' || b === 'B') return 'B';
       return (a === 'T' || b === 'T') ? 'T' : 'F';
 
-    case 'NOT':
-      if (a === 'B') return 'B';
-      return a === 'T' ? 'F' : 'T';
-
-    // --- NUEVOS OPERADORES ---
-    case 'IMPLIES': // Si A entonces B (¬A ∨ B)
+    case 'IMPLIES':
       if (a === 'B' || b === 'B') return 'B';
       return (a === 'F' || b === 'T') ? 'T' : 'F';
 
-    case 'EQUIV': // A si y solo si B (A = B)
+    case 'EQUIV':
       if (a === 'B' || b === 'B') return 'B';
       return (a === b) ? 'T' : 'F';
 

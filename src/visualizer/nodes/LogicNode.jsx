@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import { valueColors } from '../utils/logic';
+import { valueColors } from "../../utils/logic";
 
 export default function LogicNode({ data }) {
   const isBoth = data.value === 'B';

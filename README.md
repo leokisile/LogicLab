@@ -58,10 +58,12 @@ npm run dev
 ### 3. Guía de uso
 1. Crea tus variables: Haz clic en + Variable y dales un nombre (ej. p).
 
-2. Define valores: Selecciona T o F en el menú desplegable de cada variable.
+2. Define valores: Selecciona T, F, B o N en el menú desplegable de cada variable.
 
 3. Añade compuertas: Coloca operadores y conéctalos. Recuerda colocar el antecedente a la izquierda del consecuente para que la fórmula se lea correctamente.
 
 4. Finaliza el circuito: Conecta la última compuerta al botón morado de + Resultado.
 
 5. Calcula: Presiona el botón verde CALCULAR. La fórmula aparecerá en el panel lateral y los cables se iluminarán.
+
+6. En caso de querer eliminar algún nodo o conexión, selecciona el componente y presiona "Delete".

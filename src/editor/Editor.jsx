@@ -6,12 +6,17 @@ import { useDomain } from '../domain/useDomain';
 import VariableNode from '../visualizer/nodes/VariableNode';
 import LogicNode from '../visualizer/nodes/LogicNode';
 import OutputNode from '../visualizer/nodes/OutputNode';
+import AnimatedEdge from '../visualizer/edges/AnimatedEdge';
 
 // Definimos los tipos de nodos fuera del componente
 const nodeTypes = {
   variable: VariableNode,
   logic: LogicNode,
   output: OutputNode,
+};
+
+const edgeTypes = {
+  custom: AnimatedEdge,
 };
 
 export default function Editor() {
@@ -34,6 +39,7 @@ export default function Editor() {
         onEdgesChange={onEdgesChange} 
         onConnect={onConnect}         
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         
         // --- CONFIGURACIÓN PARA ELIMINACIÓN ---
         // Al borrar nodos o conexiones con la tecla Backspace/Delete, 

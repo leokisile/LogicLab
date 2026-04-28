@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ConnectionLineType } from 'reactflow';
 
-// === IMPORTACIÓN CRÍTICA ===
-// Esta línea conecta tu Dominio con el Motor de Propagación
+// === IMPORTACIONES CRÍTICAS ===
 import { runCalculation } from '../engine/propagationEngine'; 
+import { valueColors } from '../utils/logic';
 
-// Función auxiliar para construir la fórmula de forma recursiva aaa
+// Función auxiliar para construir la fórmula de forma recursiva
 const getFormulaText = (nodes, edges, nodeId) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return "";
@@ -38,16 +38,55 @@ export const useDomain = create((set, get) => ({
     }
   },
 
-  // Esta función ahora sí encontrará 'runCalculation'
-  calculate: () => {
+  // MODIFICACIÓN: Cálculo con Animación Secuencial
+  calculate: async () => {
     const { nodes, edges } = get();
-    
-    // Ejecución del motor importado
     const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
-    
+
+    // 1. Limpiamos estados previos
     set({ 
-      nodes: updatedNodes, 
-      edges: updatedEdges 
+      edges: edges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } })) 
+    });
+
+    // 2. Ordenamos cables por X (izquierda a derecha)
+    const sortedEdges = [...updatedEdges].sort((a, b) => {
+      const nodeA = nodes.find(n => n.id === a.source);
+      const nodeB = nodes.find(n => n.id === b.source);
+      return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
+    });
+
+    // 3. Ejecución secuencial
+    for (const edge of sortedEdges) {
+      const sourceNode = updatedNodes.find(n => n.id === edge.source);
+      const val = sourceNode?.data?.value || 'N';
+
+      // Disparamos animación
+      set((state) => ({
+        edges: state.edges.map(e => 
+          e.id === edge.id 
+            ? { ...e, data: { isAnimating: true, color: valueColors[val] } } 
+            : e
+        )
+      }));
+
+      // TIEMPO DE ESPERA: Debe ser igual o ligeramente mayor al 'dur' del AnimatedEdge
+      await new Promise(resolve => setTimeout(resolve, 850));
+
+      // El nodo destino recibe el impacto y cambia su valor
+      set((state) => ({
+        nodes: state.nodes.map(n => {
+          if (n.id === edge.target) {
+            const newNode = updatedNodes.find(un => un.id === n.id);
+            return { ...n, data: { ...n.data, value: newNode.data.value } };
+          }
+          return n;
+        })
+      }));
+    }
+
+    // Al finalizar todo, pintamos los cables con su color sólido final
+    set({ 
+      edges: updatedEdges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } })) 
     });
   },
 
@@ -65,9 +104,10 @@ export const useDomain = create((set, get) => ({
     set((state) => ({
       edges: addEdge({
         ...params,
-        type: ConnectionLineType.SmoothStep,
-        animated: true,
-        style: { stroke: '#95a5a6', strokeWidth: 3 }
+        type: 'custom', // Usar el tipo personalizado por defecto
+        animated: false, // Quitamos la animación de puntos de React Flow para usar la nuestra
+        style: { stroke: '#95a5a6', strokeWidth: 3 },
+        data: { isAnimating: false }
       }, state.edges),
     }));
     get().syncFormula();
@@ -105,7 +145,6 @@ export const useDomain = create((set, get) => ({
     get().syncFormula();
   },
 
-  // Función para eliminar conexiones manualmente
   deleteEdge: (edgeId) => {
     set((state) => ({
       edges: state.edges.filter((e) => e.id !== edgeId),
@@ -113,12 +152,6 @@ export const useDomain = create((set, get) => ({
     get().syncFormula();
   },
 
-  // Handler para cuando el usuario presiona "Delete" en el teclado
-  onNodesDelete: (deletedNodes) => {
-    get().syncFormula();
-  },
-
-  onEdgesDelete: (deletedEdges) => {
-    get().syncFormula();
-  },
+  onNodesDelete: () => get().syncFormula(),
+  onEdgesDelete: () => get().syncFormula(),
 }));

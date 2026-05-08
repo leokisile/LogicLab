@@ -6,8 +6,8 @@ export default function VariableNode({ data }) {
   const isBoth = data.value === 'B';
 
   return (
-    <div 
-      className={isBoth ? 'both-gradient-bg' : ''} 
+    <div
+      className={isBoth ? 'both-gradient-bg' : ''}
       style={{
         padding: '10px',
         borderRadius: '8px',
@@ -20,21 +20,27 @@ export default function VariableNode({ data }) {
         position: 'relative'
       }}
     >
+      {/* NUEVA ENTRADA (Izquierda) */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ background: '#555', width: '8px', height: '8px' }}
+      />
 
-      <div style={{ 
-        fontSize: '10px', 
-        fontWeight: 'bold', 
+      <div style={{
+        fontSize: '10px',
+        fontWeight: 'bold',
         marginBottom: '5px',
-        color: isBoth ? '#fff' : '#666' 
+        color: isBoth ? '#fff' : '#666'
       }}>
         VARIABLE ({data.label || 'p'})
       </div>
 
-      <select 
-        value={data.value} 
+      <select
+        value={data.value}
         onChange={(e) => data.onChange(data.id, e.target.value)}
-        style={{ 
-          width: '100%', 
+        style={{
+          width: '100%',
           padding: '2px',
           cursor: 'pointer',
           border: '1px solid #ccc',
@@ -48,14 +54,24 @@ export default function VariableNode({ data }) {
       </select>
 
       {/* SALIDA (Derecha) */}
-      <Handle 
-        type="source" 
-        position={Position.Right} 
-        style={{ 
-          background: isBoth ? '#f39c12' : valueColors[data.value], 
-          width: '8px', 
-          height: '8px' 
-        }} 
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{
+          background: isBoth ? '#f39c12' : valueColors[data.value],
+          width: '8px',
+          height: '8px'
+        }}
+      />
+
+      <Handle
+        type="source"
+        position={Position.Left}
+        style={{
+          background: isBoth ? '#f39c12' : valueColors[data.value],
+          width: '8px',
+          height: '8px'
+        }}
       />
     </div>
   );

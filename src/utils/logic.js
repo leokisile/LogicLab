@@ -36,6 +36,6 @@ export const computeLogic = (operator, inputs) => {
       return (a === b) ? 'T' : 'F';
 
     default:
-      return 'N';
+      return 'B';
   }
 };

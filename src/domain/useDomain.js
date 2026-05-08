@@ -10,32 +10,40 @@ const getFormulaText = (nodes, edges, nodeId) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return "";
 
-  // Si es una variable, devolvemos su etiqueta directamente
-  if (node.type === 'variable') return node.data.label || 'p';
-
-  // 1. Obtenemos las conexiones de entrada
   const connectedEdges = edges.filter((e) => e.target === nodeId);
 
-  // 2. ORDENAMOS las conexiones según la posición Y del nodo origen
-  // Esto hace que el nodo que esté más "arriba" en el lienzo sea el primer operando
+  // Si es una variable SIN entrada, es un término atómico (p, q, r)
+  if (node.type === 'variable' && connectedEdges.length === 0) {
+    return node.data.label || 'p';
+  }
+
+  // Si tiene entradas, ordenamos y procesamos
   const sortedEdges = [...connectedEdges].sort((a, b) => {
     const nodeA = nodes.find(n => n.id === a.source);
     const nodeB = nodes.find(n => n.id === b.source);
     return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
   });
 
-  // 3. Generamos las fórmulas de los padres en el nuevo orden
   const parentFormulas = sortedEdges.map((e) => getFormulaText(nodes, edges, e.source));
 
+  // CASO ESPECIAL: Variable con entrada (Asignación)
+  // Mostramos el nombre de la variable y lo que tiene "atrás"
+  if (node.type === 'variable' && connectedEdges.length > 0) {
+    return `${node.data.label}(${parentFormulas[0]})`;
+  }
+
+  // CASO: Nodo de salida/resultado
+  if (node.type === 'output') {
+    return parentFormulas[0] || "?";
+  }
+
+  // CASO: Compuertas Lógicas
   const ops = { AND: '∧', OR: '∨', NOT: '¬', IMPLIES: '→', EQUIV: '↔' };
   const symbol = ops[node.data.operator] || node.data.operator;
 
-  // 4. Construimos la cadena final
   if (node.data.operator === 'NOT') {
     return `${symbol}(${parentFormulas[0] || '?'})`;
   }
-
-  // Para operadores binarios: (Arriba OPERADOR Abajo)
   return `(${parentFormulas[0] || '?'} ${symbol} ${parentFormulas[1] || '?'})`;
 };
 
@@ -55,40 +63,47 @@ export const useDomain = create((set, get) => ({
   },
 
   // MODIFICACIÓN: Cálculo con Animación Secuencial
+  // ... dentro de useDomain.js en calculate()
   calculate: async () => {
     const { nodes, edges } = get();
     const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
 
-    // 1. Limpiamos estados previos
+    // 1. Limpiamos estados de animación (apagamos todas las bolitas)
     set({
-      edges: edges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } }))
+      edges: edges.map(e => ({ ...e, data: { ...e.data, isAnimating: false } }))
     });
 
-    // 2. Ordenamos cables por X (izquierda a derecha)
     const sortedEdges = [...updatedEdges].sort((a, b) => {
       const nodeA = nodes.find(n => n.id === a.source);
       const nodeB = nodes.find(n => n.id === b.source);
       return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
     });
 
-    // 3. Ejecución secuencial
+    // 2. Ejecución secuencial
     for (const edge of sortedEdges) {
       const sourceNode = updatedNodes.find(n => n.id === edge.source);
       const val = sourceNode?.data?.value || 'N';
 
-      // Disparamos animación
+      // DISPARAMOS LA BOLITA
       set((state) => ({
         edges: state.edges.map(e =>
           e.id === edge.id
-            ? { ...e, data: { isAnimating: true, color: valueColors[val] } }
+            ? {
+              ...e,
+              data: {
+                ...e.data,
+                isAnimating: true,
+                color: valueColors[val],
+                animationKey: Date.now() // Forzamos el reinicio del <animateMotion>
+              }
+            }
             : e
         )
       }));
 
-      // TIEMPO DE ESPERA: Debe ser igual o ligeramente mayor al 'dur' del AnimatedEdge
       await new Promise(resolve => setTimeout(resolve, 850));
 
-      // El nodo destino recibe el impacto y cambia su valor
+      // Impacto en el nodo destino y APAGAMOS la bolita
       set((state) => ({
         nodes: state.nodes.map(n => {
           if (n.id === edge.target) {
@@ -96,14 +111,24 @@ export const useDomain = create((set, get) => ({
             return { ...n, data: { ...n.data, value: newNode.data.value } };
           }
           return n;
-        })
+        }),
+        edges: state.edges.map(e =>
+          e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e
+        )
       }));
     }
 
-    // Al finalizar todo, pintamos los cables con su color sólido final
+    // 3. ESTADO FINAL: Las líneas punteadas fluyen (animated de React Flow)
     set({
-      edges: updatedEdges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } }))
+      nodes: updatedNodes,
+      edges: updatedEdges.map(e => ({
+        ...e,
+        animated: e.data.value !== 'N', // Activa el movimiento del dasharray
+        data: { ...e.data, isAnimating: false } // Quitamos la bolita final
+      }))
     });
+
+    get().syncFormula();
   },
 
   onNodesChange: (changes) => {

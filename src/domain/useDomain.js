@@ -2,24 +2,40 @@ import { create } from 'zustand';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ConnectionLineType } from 'reactflow';
 
 // === IMPORTACIONES CRÍTICAS ===
-import { runCalculation } from '../engine/propagationEngine'; 
+import { runCalculation } from '../engine/propagationEngine';
 import { valueColors } from '../utils/logic';
 
 // Función auxiliar para construir la fórmula de forma recursiva
 const getFormulaText = (nodes, edges, nodeId) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return "";
+
+  // Si es una variable, devolvemos su etiqueta directamente
   if (node.type === 'variable') return node.data.label || 'p';
 
+  // 1. Obtenemos las conexiones de entrada
   const connectedEdges = edges.filter((e) => e.target === nodeId);
-  const parentFormulas = connectedEdges.map((e) => getFormulaText(nodes, edges, e.source));
+
+  // 2. ORDENAMOS las conexiones según la posición Y del nodo origen
+  // Esto hace que el nodo que esté más "arriba" en el lienzo sea el primer operando
+  const sortedEdges = [...connectedEdges].sort((a, b) => {
+    const nodeA = nodes.find(n => n.id === a.source);
+    const nodeB = nodes.find(n => n.id === b.source);
+    return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
+  });
+
+  // 3. Generamos las fórmulas de los padres en el nuevo orden
+  const parentFormulas = sortedEdges.map((e) => getFormulaText(nodes, edges, e.source));
 
   const ops = { AND: '∧', OR: '∨', NOT: '¬', IMPLIES: '→', EQUIV: '↔' };
   const symbol = ops[node.data.operator] || node.data.operator;
 
+  // 4. Construimos la cadena final
   if (node.data.operator === 'NOT') {
     return `${symbol}(${parentFormulas[0] || '?'})`;
   }
+
+  // Para operadores binarios: (Arriba OPERADOR Abajo)
   return `(${parentFormulas[0] || '?'} ${symbol} ${parentFormulas[1] || '?'})`;
 };
 
@@ -44,8 +60,8 @@ export const useDomain = create((set, get) => ({
     const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
 
     // 1. Limpiamos estados previos
-    set({ 
-      edges: edges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } })) 
+    set({
+      edges: edges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } }))
     });
 
     // 2. Ordenamos cables por X (izquierda a derecha)
@@ -62,9 +78,9 @@ export const useDomain = create((set, get) => ({
 
       // Disparamos animación
       set((state) => ({
-        edges: state.edges.map(e => 
-          e.id === edge.id 
-            ? { ...e, data: { isAnimating: true, color: valueColors[val] } } 
+        edges: state.edges.map(e =>
+          e.id === edge.id
+            ? { ...e, data: { isAnimating: true, color: valueColors[val] } }
             : e
         )
       }));
@@ -85,14 +101,18 @@ export const useDomain = create((set, get) => ({
     }
 
     // Al finalizar todo, pintamos los cables con su color sólido final
-    set({ 
-      edges: updatedEdges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } })) 
+    set({
+      edges: updatedEdges.map(e => ({ ...e, type: 'custom', data: { isAnimating: false } }))
     });
   },
 
   onNodesChange: (changes) => {
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }));
-    get().syncFormula();
+
+    // Si el cambio es de posición, recalculamos la fórmula
+    if (changes.some(c => c.type === 'position')) {
+      get().syncFormula();
+    }
   },
 
   onEdgesChange: (changes) => {
@@ -116,20 +136,33 @@ export const useDomain = create((set, get) => ({
   addNode: (type, op = '') => {
     const id = `n_${Math.random().toString(36).substr(2, 5)}`;
     let label = type === 'VAR' ? prompt("Etiqueta (p, q, r...):") || "p" : op;
-    
+
     const newNode = {
       id,
       type: type === 'VAR' ? 'variable' : (type === 'OUT' ? 'output' : 'logic'),
       position: { x: 100, y: 100 },
       data: {
-        id, 
-        value: 'N', 
-        operator: op, 
+        id,
+        value: 'N',
+        operator: op,
         label,
         onChange: (nodeId, val) => {
+          // --- INICIO DE LÓGICA DE SINCRONIZACIÓN ---
+          const { nodes } = get();
+          const changedNode = nodes.find(n => n.id === nodeId);
+          const currentLabel = changedNode?.data?.label;
+
           set((state) => ({
-            nodes: state.nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, value: val } } : n)
+            nodes: state.nodes.map(n => {
+              // Si es una variable y tiene el mismo nombre, actualizamos su valor
+              if (n.type === 'variable' && n.data.label === currentLabel) {
+                return { ...n, data: { ...n.data, value: val } };
+              }
+              return n;
+            })
           }));
+          // --- FIN DE LÓGICA DE SINCRONIZACIÓN ---
+
           get().syncFormula();
         }
       }

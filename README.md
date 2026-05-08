@@ -44,13 +44,14 @@ Necesitas tener instalado [Node.js](https://nodejs.org/) (recomendado v16 o supe
 ### 2. Clonar y Configurar
 ```bash
 # Clonar el repositorio
-git clone [https://github.com/TU_USUARIO/logic-lab.git](https://github.com/TU_USUARIO/logic-lab.git)
+git clone [https://github.com/leokisile/LogicLab.git](https://github.com/leokisile/LogicLab.git)
 
-# Entrar a la carpeta
-cd logic-lab
+# Entrar a la carpeta del proyecto
+cd LogicLab
 
 # Instalar las dependencias
 npm install
+npm install reactflow zustand
 
 # Lanzar la aplicación
 npm run dev

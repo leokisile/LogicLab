@@ -15,7 +15,15 @@ export const runCalculation = (nodes, edges) => {
 
   console.log("%c--- INICIO DE TRAZA LÓGICA ---", "color: #3498db; font-weight: bold;");
 
-  for (let i = 0; i < 5; i++) {
+  let changed = true;
+  let iterations = 0;
+  const MAX_ITERATIONS = 50;
+
+  while (changed && iterations < MAX_ITERATIONS) {
+
+    changed= false;
+    iterations++;
+
     const iterationLog = [];
 
     // A. Propagación Física
@@ -39,6 +47,10 @@ export const runCalculation = (nodes, edges) => {
       if (node.type === 'variable') {
         const symbol = "←";
         iterationLog.push(`${node.data.label}(${newValue}) ${symbol} (Entrada: ${inputValues[0]})`);
+      }
+
+      if (node.data.value !== newValue) {
+        changed = true;
       }
 
       return { ...node, data: { ...node.data, value: newValue, hasIncomingConnection: true } };

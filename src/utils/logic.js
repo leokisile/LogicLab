@@ -1,41 +1,59 @@
 export const valueColors = {
-  T: "#2ecc71", // Verde
-  F: "#e74c3c", // Rojo
-  B: "#f39c12", // Naranja (para las flechas/líneas)
-  N: "#95a5a6", // Gris
+  T: "#2ecc71",
+  F: "#e74c3c",
+  B: "#f39c12",
+  N: "#95a5a6",
 };
+
+// tablas lógicas
+
+const AND_TABLE = {
+  T: { T: 'T', F: 'F', B: 'B', N: 'N' },
+  F: { T: 'F', F: 'F', B: 'F', N: 'F' },
+  B: { T: 'B', F: 'F', B: 'B', N: 'N' },
+  N: { T: 'N', F: 'F', B: 'N', N: 'N' },
+};
+
+const OR_TABLE = {
+  T: { T: 'T', F: 'T', B: 'T', N: 'T' },
+  F: { T: 'T', F: 'F', B: 'B', N: 'N' },
+  B: { T: 'T', F: 'B', B: 'B', N: 'B' },
+  N: { T: 'T', F: 'N', B: 'B', N: 'N' },
+};
+
+const NOT_TABLE = {
+  T: 'F',
+  F: 'T',
+  B: 'B',
+  N: 'N',
+};
+
+// motor lógico
 
 export const computeLogic = (operator, inputs) => {
   const a = inputs[0] || 'N';
   const b = inputs[1] || 'N';
 
-  // Solo validamos que AMBOS existan si NO es un NOT
-  if (operator !== 'NOT' && (a === 'N' || b === 'N')) return 'N';
-  // Si es NOT, solo validamos que exista la primera entrada
-  if (operator === 'NOT' && a === 'N') return 'N';
-
   switch (operator) {
     case 'NOT':
-      if (a === 'B') return 'B';
-      return a === 'T' ? 'F' : 'T';
+      return NOT_TABLE[a];
 
     case 'AND':
-      if (a === 'B' || b === 'B') return 'B';
-      return (a === 'T' && b === 'T') ? 'T' : 'F';
-    
+      return AND_TABLE[a][b];
+
     case 'OR':
-      if (a === 'B' || b === 'B') return 'B';
-      return (a === 'T' || b === 'T') ? 'T' : 'F';
+      return OR_TABLE[a][b];
 
     case 'IMPLIES':
-      if (a === 'B' || b === 'B') return 'B';
-      return (a === 'F' || b === 'T') ? 'T' : 'F';
+      return OR_TABLE[NOT_TABLE[a]][b];
 
-    case 'EQUIV':
-      if (a === 'B' || b === 'B') return 'B';
-      return (a === b) ? 'T' : 'F';
+    case 'EQUIV': {
+      const left = OR_TABLE[NOT_TABLE[a]][b];
+      const right = OR_TABLE[NOT_TABLE[b]][a];
+      return AND_TABLE[left][right];
+    }
 
     default:
-      return 'B';
+      return 'N';
   }
 };

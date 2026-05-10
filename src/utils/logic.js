@@ -5,6 +5,15 @@ export const valueColors = {
   N: "#95a5a6",
 };
 
+export const mergeInformation = (current, incoming) => {
+  if (current === incoming) return current;
+  if (current === 'N') return incoming;
+  if (incoming === 'N') return current;
+  
+  // Si llegamos aquí, hay un conflicto (T vs F) o uno ya es B
+  return 'B';
+};
+
 // tablas lógicas
 
 const AND_TABLE = {

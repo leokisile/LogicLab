@@ -4,6 +4,8 @@ export const valueColors = {
   B: "#f39c12",
   N: "#95a5a6",
 };
+export const VALUE_COSTS = { N: 1, T: 2, F: 2, B: 3 };
+const INV_V = ['N', 'F', 'T', 'B'];
 
 export const mergeInformation = (current, incoming) => {
   if (current === incoming) return current;
@@ -17,17 +19,17 @@ export const mergeInformation = (current, incoming) => {
 // tablas lógicas
 
 const AND_TABLE = {
-  T: { T: 'T', F: 'F', B: 'B', N: 'N' },
-  F: { T: 'F', F: 'F', B: 'F', N: 'F' },
-  B: { T: 'B', F: 'F', B: 'B', N: 'N' },
-  N: { T: 'N', F: 'F', B: 'N', N: 'N' },
+  N: { N: 'N', T: 'N', F: 'F', B: 'F' },
+  T: { N: 'N', T: 'T', F: 'F', B: 'B' },
+  F: { N: 'F', T: 'F', F: 'F', B: 'F' },
+  B: { N: 'F', T: 'B', F: 'F', B: 'B' },
 };
 
 const OR_TABLE = {
-  T: { T: 'T', F: 'T', B: 'T', N: 'T' },
-  F: { T: 'T', F: 'F', B: 'B', N: 'N' },
-  B: { T: 'T', F: 'B', B: 'B', N: 'B' },
-  N: { T: 'T', F: 'N', B: 'B', N: 'N' },
+  N: { N: 'N', T: 'T', F: 'N', B: 'T' },
+  T: { N: 'T', T: 'T', F: 'T', B: 'T' },
+  F: { N: 'N', T: 'T', F: 'F', B: 'B' },
+  B: { N: 'T', T: 'T', F: 'B', B: 'B' },
 };
 
 const NOT_TABLE = {
@@ -38,31 +40,49 @@ const NOT_TABLE = {
 };
 
 // motor lógico
+/**
+ * Busca las combinaciones (p, q) que generan targetValue ordenadas por costo mínimo.
+ */
+export const getSortedCandidates = (operator, targetValue) => {
+  const candidates = [];
+
+  if (operator === 'AND' || operator === 'OR') {
+    const table = operator === 'AND' ? AND_TABLE : OR_TABLE;
+    for (const p of INV_V) {
+      for (const q of INV_V) {
+        if (table[p]?.[q] === targetValue) {
+          candidates.push({ p, q, cost: VALUE_COSTS[p] + VALUE_COSTS[q] });
+        }
+      }
+    }
+  } else if (operator === 'IMPLIES' || operator === 'EQUIV') {
+    for (const p of INV_V) {
+      for (const q of INV_V) {
+        if (computeLogic(operator, [p, q]) === targetValue) {
+          candidates.push({ p, q, cost: VALUE_COSTS[p] + VALUE_COSTS[q] });
+        }
+      }
+    }
+  }
+  return candidates.sort((a, b) => a.cost - b.cost);
+};
+
+export const getNotCandidate = (targetValue) => {
+  for (const key in NOT_TABLE) {
+    if (NOT_TABLE[key] === targetValue) return key;
+  }
+  return 'N';
+};
 
 export const computeLogic = (operator, inputs) => {
   const a = inputs[0] || 'N';
   const b = inputs[1] || 'N';
-
   switch (operator) {
-    case 'NOT':
-      return NOT_TABLE[a];
-
-    case 'AND':
-      return AND_TABLE[a][b];
-
-    case 'OR':
-      return OR_TABLE[a][b];
-
-    case 'IMPLIES':
-      return OR_TABLE[NOT_TABLE[a]][b];
-
-    case 'EQUIV': {
-      const left = OR_TABLE[NOT_TABLE[a]][b];
-      const right = OR_TABLE[NOT_TABLE[b]][a];
-      return AND_TABLE[left][right];
-    }
-
-    default:
-      return 'N';
+    case 'NOT': return NOT_TABLE[a];
+    case 'AND': return AND_TABLE[a][b];
+    case 'OR': return OR_TABLE[a][b];
+    case 'IMPLIES': return OR_TABLE[NOT_TABLE[a]][b];
+    case 'EQUIV': return AND_TABLE[OR_TABLE[NOT_TABLE[a]][b]][OR_TABLE[NOT_TABLE[b]][a]];
+    default: return 'N';
   }
 };

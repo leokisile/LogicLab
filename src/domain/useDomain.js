@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ConnectionLineType } from 'reactflow';
-
-// === IMPORTACIONES CRÍTICAS ===
 import { runCalculation } from '../engine/propagationEngine';
 import { valueColors } from '../utils/logic';
 
@@ -62,16 +60,11 @@ export const useDomain = create((set, get) => ({
     }
   },
 
-  // MODIFICACIÓN: Cálculo con Animación Secuencial
-  // ... dentro de useDomain.js en calculate()
   calculate: async () => {
     const { nodes, edges } = get();
     const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
 
-    // 1. Limpiamos estados de animación (apagamos todas las bolitas)
-    set({
-      edges: edges.map(e => ({ ...e, data: { ...e.data, isAnimating: false } }))
-    });
+    set({ edges: edges.map(e => ({ ...e, data: { ...e.data, isAnimating: false } })) });
 
     const sortedEdges = [...updatedEdges].sort((a, b) => {
       const nodeA = nodes.find(n => n.id === a.source);
@@ -79,25 +72,16 @@ export const useDomain = create((set, get) => ({
       return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
     });
 
-    // 2. Ejecución secuencial
     for (const edge of sortedEdges) {
       const sourceNode = updatedNodes.find(n => n.id === edge.source);
       const val = sourceNode?.data?.value || 'N';
 
-      // DISPARAMOS LA BOLITA
       set((state) => ({
         edges: state.edges.map(e =>
-          e.id === edge.id
-            ? {
-              ...e,
-              data: {
-                ...e.data,
-                isAnimating: true,
-                color: valueColors[val],
-                animationKey: Date.now() // Forzamos el reinicio del <animateMotion>
-              }
-            }
-            : e
+          e.id === edge.id ? {
+            ...e,
+            data: { ...e.data, isAnimating: true, color: valueColors[val], animationKey: Date.now() }
+          } : e
         )
       }));
 
@@ -112,22 +96,14 @@ export const useDomain = create((set, get) => ({
           }
           return n;
         }),
-        edges: state.edges.map(e =>
-          e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e
-        )
+        edges: state.edges.map(e => e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e)
       }));
     }
 
-    // 3. ESTADO FINAL: Las líneas punteadas fluyen (animated de React Flow)
     set({
       nodes: updatedNodes,
-      edges: updatedEdges.map(e => ({
-        ...e,
-        animated: e.data.value !== 'N', // Activa el movimiento del dasharray
-        data: { ...e.data, isAnimating: false } // Quitamos la bolita final
-      }))
+      edges: updatedEdges.map(e => ({ ...e, animated: e.data.value !== 'N', data: { ...e.data, isAnimating: false } }))
     });
-
     get().syncFormula();
   },
 
@@ -171,23 +147,17 @@ export const useDomain = create((set, get) => ({
         value: 'N',
         operator: op,
         label,
+        allowedOptions: ['N', 'T', 'F', 'B'],
         onChange: (nodeId, val) => {
-          // --- INICIO DE LÓGICA DE SINCRONIZACIÓN ---
-          const { nodes } = get();
-          const changedNode = nodes.find(n => n.id === nodeId);
-          const currentLabel = changedNode?.data?.label;
-
           set((state) => ({
             nodes: state.nodes.map(n => {
-              // Si es una variable y tiene el mismo nombre, actualizamos su valor
-              if (n.type === 'variable' && n.data.label === currentLabel) {
+              // Sincronización monotónica de variables espejo
+              if (n.id === nodeId || (n.type === 'variable' && n.data.label === state.nodes.find(x => x.id === nodeId)?.data?.label)) {
                 return { ...n, data: { ...n.data, value: val } };
               }
               return n;
             })
           }));
-          // --- FIN DE LÓGICA DE SINCRONIZACIÓN ---
-
           get().syncFormula();
         }
       }

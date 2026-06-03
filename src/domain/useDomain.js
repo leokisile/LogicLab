@@ -180,6 +180,38 @@ export const useDomain = create((set, get) => ({
     get().syncFormula();
   },
 
+  clearCircuit: () => {
+    const { nodes, edges } = get();
+
+    // 1. Regresa los nodos a su estado neutro 'N' y libera las 4 opciones de los selectores
+    const clearedNodes = nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        value: 'N',
+        allowedOptions: ['N', 'T', 'F', 'B'],
+        hasIncomingConnection: edges.some(e => e.target === node.id)
+      }
+    }));
+
+    // 2. Apaga las animaciones de flujo y pinta las aristas de color gris neutro
+    const clearedEdges = edges.map(edge => ({
+      ...edge,
+      animated: false,
+      style: { stroke: '#95a5a6', strokeWidth: 3 },
+      data: { ...edge.data, color: '#95a5a6', isAnimating: false }
+    }));
+
+    // 3. Impacta los estados limpios de forma inmediata y refresca el texto de la fórmula
+    set({
+      nodes: clearedNodes,
+      edges: clearedEdges,
+      formula: "Diseña un circuito..."
+    });
+
+    get().syncFormula();
+  },
+
   onNodesDelete: () => get().syncFormula(),
   onEdgesDelete: () => get().syncFormula(),
 }));

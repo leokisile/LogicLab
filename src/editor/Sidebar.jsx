@@ -2,8 +2,8 @@ import React from 'react';
 import { useDomain } from '../domain/useDomain';
 
 export default function Sidebar() {
-  // CORRECCIÓN: Agregamos 'calculate' a la desestructuración
-  const { addNode, formula, calculate } = useDomain(); 
+  // CORRECCIÓN: Desestructuramos también 'clearCircuit'
+  const { addNode, formula, calculate, clearCircuit } = useDomain(); 
 
   return (
     <aside className="sidebar">
@@ -19,12 +19,25 @@ export default function Sidebar() {
 
       <div className="formula-box">
         <strong>Fórmula:</strong>
-        {/* Usamos 'formula' que viene del store */}
         <p style={{ color: '#2ecc71', fontSize: '0.9rem', wordBreak: 'break-all' }}>{formula}</p>
       </div>
 
-      {/* Ahora 'calculate' ya existe y el botón no fallará */}
       <button className="btn btn-calc" onClick={calculate}>CALCULAR</button>
+
+      {/* === AÑADIR BOTÓN DE LIMPIEZA DESDE AQUÍ === */}
+      <button 
+        className="btn" 
+        onClick={clearCircuit} 
+        style={{ 
+          marginTop: '10px', 
+          background: '#e74c3c', 
+          color: 'white', 
+          fontWeight: 'bold' 
+        }}
+      >
+        LIMPIAR LIENZO
+      </button>
+      {/* === HASTA AQUÍ === */}
     </aside>
   );
 }

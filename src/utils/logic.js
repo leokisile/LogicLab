@@ -1,22 +1,28 @@
+// src/utils/logic.js
+
 export const valueColors = {
   T: "#2ecc71",
   F: "#e74c3c",
   B: "#f39c12",
   N: "#95a5a6",
 };
-export const VALUE_COSTS = { N: 1, T: 2, F: 2, B: 3 };
-const INV_V = ['N', 'F', 'T', 'B'];
 
-export const mergeInformation = (current, incoming) => {
-  if (current === incoming) return current;
-  if (current === 'N') return incoming;
-  if (incoming === 'N') return current;
-  
-  // Si llegamos aquí, hay un conflicto (T vs F) o uno ya es B
-  return 'B';
+export const INV_V = ['N', 'T', 'F', 'B'];
+
+export const futureSets = {
+  'N': new Set(['N', 'T', 'F', 'B']),
+  'T': new Set(['T', 'B']),
+  'F': new Set(['F', 'B']),
+  'B': new Set(['B'])
 };
 
-// tablas lógicas
+// Heurística de pesos solicitada para la visualización final
+export const VALUE_WEIGHTS = {
+  'N': 0,
+  'T': 1,
+  'F': 1,
+  'B': 2
+};
 
 const AND_TABLE = {
   N: { N: 'N', T: 'N', F: 'F', B: 'F' },
@@ -32,46 +38,20 @@ const OR_TABLE = {
   B: { N: 'T', T: 'T', F: 'B', B: 'B' },
 };
 
-const NOT_TABLE = {
-  T: 'F',
-  F: 'T',
-  B: 'B',
-  N: 'N',
+const XOR_TABLE = {
+  N: { N: 'N', T: 'T', F: 'N', B: 'T' },
+  T: { N: 'T', T: 'N', F: 'T', B: 'N' },
+  F: { N: 'N', T: 'T', F: 'N', B: 'T' },
+  B: { N: 'T', T: 'N', F: 'T', B: 'N' }
 };
 
-// motor lógico
-/**
- * Busca las combinaciones (p, q) que generan targetValue ordenadas por costo mínimo.
- */
-export const getSortedCandidates = (operator, targetValue) => {
-  const candidates = [];
+const NOT_TABLE = { T: 'F', F: 'T', B: 'B', N: 'N' };
 
-  if (operator === 'AND' || operator === 'OR') {
-    const table = operator === 'AND' ? AND_TABLE : OR_TABLE;
-    for (const p of INV_V) {
-      for (const q of INV_V) {
-        if (table[p]?.[q] === targetValue) {
-          candidates.push({ p, q, cost: VALUE_COSTS[p] + VALUE_COSTS[q] });
-        }
-      }
-    }
-  } else if (operator === 'IMPLIES' || operator === 'EQUIV') {
-    for (const p of INV_V) {
-      for (const q of INV_V) {
-        if (computeLogic(operator, [p, q]) === targetValue) {
-          candidates.push({ p, q, cost: VALUE_COSTS[p] + VALUE_COSTS[q] });
-        }
-      }
-    }
-  }
-  return candidates.sort((a, b) => a.cost - b.cost);
-};
-
-export const getNotCandidate = (targetValue) => {
-  for (const key in NOT_TABLE) {
-    if (NOT_TABLE[key] === targetValue) return key;
-  }
-  return 'N';
+export const mergeInformation = (current, incoming) => {
+  if (current === incoming) return current;
+  if (current === 'N') return incoming;
+  if (incoming === 'N') return current;
+  return 'B';
 };
 
 export const computeLogic = (operator, inputs) => {
@@ -81,8 +61,51 @@ export const computeLogic = (operator, inputs) => {
     case 'NOT': return NOT_TABLE[a];
     case 'AND': return AND_TABLE[a][b];
     case 'OR': return OR_TABLE[a][b];
+    case 'XOR': return XOR_TABLE[a][b];
     case 'IMPLIES': return OR_TABLE[NOT_TABLE[a]][b];
     case 'EQUIV': return AND_TABLE[OR_TABLE[NOT_TABLE[a]][b]][OR_TABLE[NOT_TABLE[b]][a]];
     default: return 'N';
   }
+};
+
+export const getMinimalElements = (valuesSet) => {
+  if (!valuesSet || valuesSet.size === 0) return new Set();
+  if (valuesSet.has('N')) return new Set(['N']);
+  
+  const minimal = new Set();
+  if (valuesSet.has('T')) minimal.add('T');
+  if (valuesSet.has('F')) minimal.add('F');
+  
+  if (minimal.size === 0 && valuesSet.has('B')) {
+    minimal.add('B');
+  }
+  return minimal;
+};
+
+/**
+ * Heurística para obtener la pareja única (o primera óptima) de costo mínimo
+ * Suma los pesos de P y Q (N=0, T/F=1, B=2)
+ */
+export const getHeuristicLowestCostPair = (validConfigs, isUnary = false) => {
+  if (!validConfigs || validConfigs.length === 0) return null;
+
+  let bestConfig = validConfigs[0];
+  let minCost = Infinity;
+
+  validConfigs.forEach(c => {
+    const costP = VALUE_WEIGHTS[c[0]];
+    const costQ = isUnary ? 0 : VALUE_WEIGHTS[c[1]];
+    const total = costP + costQ;
+
+    if (total < minCost) {
+      minCost = total;
+      bestConfig = c;
+    }
+  });
+
+  return {
+    p: bestConfig[0],
+    q: bestConfig[1],
+    z: bestConfig[2]
+  };
 };

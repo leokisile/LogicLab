@@ -1,21 +1,18 @@
 import { create } from 'zustand';
-import { addEdge, applyNodeChanges, applyEdgeChanges, ConnectionLineType } from 'reactflow';
+import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { runCalculation } from '../engine/propagationEngine';
 import { valueColors } from '../utils/logic';
 
-// Función auxiliar para construir la fórmula de forma recursiva
 const getFormulaText = (nodes, edges, nodeId) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return "";
 
   const connectedEdges = edges.filter((e) => e.target === nodeId);
 
-  // Si es una variable SIN entrada, es un término atómico (p, q, r)
   if (node.type === 'variable' && connectedEdges.length === 0) {
     return node.data.label || 'p';
   }
 
-  // Si tiene entradas, ordenamos y procesamos
   const sortedEdges = [...connectedEdges].sort((a, b) => {
     const nodeA = nodes.find(n => n.id === a.source);
     const nodeB = nodes.find(n => n.id === b.source);
@@ -24,18 +21,14 @@ const getFormulaText = (nodes, edges, nodeId) => {
 
   const parentFormulas = sortedEdges.map((e) => getFormulaText(nodes, edges, e.source));
 
-  // CASO ESPECIAL: Variable con entrada (Asignación)
-  // Mostramos el nombre de la variable y lo que tiene "atrás"
   if (node.type === 'variable' && connectedEdges.length > 0) {
     return `${node.data.label}(${parentFormulas[0]})`;
   }
 
-  // CASO: Nodo de salida/resultado
   if (node.type === 'output') {
     return parentFormulas[0] || "?";
   }
 
-  // CASO: Compuertas Lógicas
   const ops = { AND: '∧', OR: '∨', NOT: '¬', IMPLIES: '→', EQUIV: '↔' };
   const symbol = ops[node.data.operator] || node.data.operator;
 
@@ -60,10 +53,74 @@ export const useDomain = create((set, get) => ({
     }
   },
 
+  // ACTUALIZADOR GLOBAL UNIFICADO (Disparado directamente por los componentes)
+  updateNodeValue: (nodeId, newValue) => {
+    console.log("=== 🚀 INICIO DE PROPAGACIÓN EN STORE ===");
+    console.log(`[Click Original] ID del Nodo: ${nodeId} -> Nuevo Valor: ${newValue}`);
+
+    set((state) => {
+      // 1. Encontrar el nodo que disparó el cambio original
+      const targetNode = state.nodes.find((n) => n.id === nodeId);
+
+      if (!targetNode) {
+        console.warn(`❌ Error crítico: No se encontró el nodo con ID "${nodeId}" en el store.`);
+        return {};
+      }
+
+      console.log(`[Nodo Encontrado] Tipo: "${targetNode.type}", Etiqueta/Label: "${targetNode.data?.label}"`);
+
+      // 2. Mapear y registrar qué pasa con cada nodo en el lienzo
+      const updatedNodes = state.nodes.map((node) => {
+
+        // REGLA UNIFICADA: Nodo modificado O variable espejo con la misma etiqueta
+        const esMismoId = node.id === nodeId;
+        const esVariableEspejo = targetNode.type === 'variable' &&
+          node.type === 'variable' &&
+          node.data.label === targetNode.data.label;
+
+        if (esMismoId || esVariableEspejo) {
+          console.log(
+            `✨ [MODIFICANDO] Nodo ID: "${node.id}" (${node.data.label || 'sin label'}) | ` +
+            `Motivo: ${esMismoId ? "Es el nodo clickeado" : "Es un nodo espejo"} | ` +
+            `Valor anterior: "${node.data.value}" -> Valor nuevo: "${newValue}"`
+          );
+
+          return {
+            ...node,
+            // Forzamos un cambio superficial extra en el estilo por si ReactFlow está encachando el componente
+            style: { ...node.style, zIndex: (node.style?.zIndex || 0) + 1 },
+            data: {
+              ...node.data,
+              value: newValue,
+              allowedOptions: targetNode.data.allowedOptions || ['N', 'T', 'F', 'B']
+            }
+          };
+        }
+
+        // Si no cumple la condición, el nodo pasa de largo intacto
+        return node;
+      });
+
+      console.log("=== 📦 FIN DEL MAPEO: ESTADO FINAL QUE SE GUARDARÁ ===");
+      console.log(updatedNodes.map(n => ({ id: n.id, label: n.data.label, value: n.data.value })));
+
+      return { nodes: updatedNodes };
+    });
+
+    // Sincronizar inmediatamente la fórmula del panel izquierdo
+    get().syncFormula();
+  },
+
   calculate: async () => {
     const { nodes, edges } = get();
+
+    // MAPA DE VALORES ORIGINALES: Guardamos una fotografía de los valores antes del cálculo
+    const originalValuesMap = new Map(nodes.map(n => [n.id, n.data.value]));
+
+    // 1. Ejecutar el motor de cálculo matemático primario
     const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
 
+    // Resetear el estado visual de animación de todos los cables
     set({ edges: edges.map(e => ({ ...e, data: { ...e.data, isAnimating: false } })) });
 
     const sortedEdges = [...updatedEdges].sort((a, b) => {
@@ -72,10 +129,12 @@ export const useDomain = create((set, get) => ({
       return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
     });
 
+    // 2. Animación secuencial de cables (Flujo de izquierda a derecha)
     for (const edge of sortedEdges) {
       const sourceNode = updatedNodes.find(n => n.id === edge.source);
       const val = sourceNode?.data?.value || 'N';
 
+      // Encender pulso de animación en el cable actual
       set((state) => ({
         edges: state.edges.map(e =>
           e.id === edge.id ? {
@@ -85,32 +144,106 @@ export const useDomain = create((set, get) => ({
         )
       }));
 
+      // Retraso de renderizado para simular el viaje de la señal eléctrica
       await new Promise(resolve => setTimeout(resolve, 850));
 
-      // Impacto en el nodo destino y APAGAMOS la bolita
-      set((state) => ({
-        nodes: state.nodes.map(n => {
+      // IMPACTO EN TIEMPO REAL: Actualizar nodo destino Y sincronizar de inmediato si es espejo
+      set((state) => {
+        const targetNodeInCalculation = updatedNodes.find(un => un.id === edge.target);
+        let newValueForTarget = targetNodeInCalculation?.data?.value || 'N';
+
+        // 🌟 LOGICA DE CONTRADICCIÓN: Si el destino tenía T o F original y recibe su inverso, se convierte en 'B'
+        const userOriginalTarget = originalValuesMap.get(edge.target) || 'N';
+        if (userOriginalTarget !== 'N' && newValueForTarget !== 'N' && userOriginalTarget !== newValueForTarget) {
+          newValueForTarget = 'B';
+        }
+
+        const nodesWithStepSync = state.nodes.map(n => {
+          // Si es el nodo destino que recibió el impacto del cable
           if (n.id === edge.target) {
-            const newNode = updatedNodes.find(un => un.id === n.id);
-            return { ...n, data: { ...n.data, value: newNode.data.value } };
+            return { ...n, data: { ...n.data, value: newValueForTarget } };
           }
+
+          // 🌟 REGLA DE ESPEJO CORREGIDA: Si el nodo afectado (o cualquiera de sus clones) 
+          // tiene la misma etiqueta, debe absorber el nuevo valor (incluyendo 'B' si colapsó)
+          if (
+            targetNodeInCalculation?.type === 'variable' &&
+            n.type === 'variable' &&
+            n.data.label === targetNodeInCalculation.data.label
+          ) {
+            return { ...n, data: { ...n.data, value: newValueForTarget } };
+          }
+
           return n;
-        }),
-        edges: state.edges.map(e => e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e)
-      }));
+        });
+
+        // Apagar el cable actual tras dejar su valor en el nodo
+        const updatedEdgesState = state.edges.map(e =>
+          e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e
+        );
+
+        return { nodes: nodesWithStepSync, edges: updatedEdgesState };
+      });
     }
 
-    set({
-      nodes: updatedNodes,
-      edges: updatedEdges.map(e => ({ ...e, animated: e.data.value !== 'N', data: { ...e.data, isAnimating: false } }))
+    // 3. ESTADO FINAL: Aplicar el cierre del cálculo asegurando consistencia absoluta
+    set((state) => {
+      // Tomamos la salida del motor y aplicamos la misma verificación para el estado de cierre definitivo
+      const finalSyncedNodes = updatedNodes.map((computedNode) => {
+        let finalValue = computedNode.data.value || 'N';
+        const userOriginalVal = originalValuesMap.get(computedNode.id) || 'N';
+
+        // Mantener el estado 'B' si hubo colisión directa en este nodo
+        if (userOriginalVal !== 'N' && finalValue !== 'N' && userOriginalVal !== finalValue) {
+          finalValue = 'B';
+        }
+
+        if (computedNode.type === 'variable') {
+          // Buscamos si alguna de sus copias gemelas adquirió un valor prioritario o mutó a 'B'
+          const anyTwinWithValue = updatedNodes.find(
+            t => t.type === 'variable' && t.data.label === computedNode.data.label && t.data.value !== 'N'
+          );
+
+          if (anyTwinWithValue) {
+            let twinVal = anyTwinWithValue.data.value;
+            const twinOriginalVal = originalValuesMap.get(anyTwinWithValue.id) || 'N';
+            
+            if (twinOriginalVal !== 'N' && twinVal !== 'N' && twinOriginalVal !== twinVal) {
+              twinVal = 'B';
+            }
+
+            // Sincronización familiar: Si cualquiera es 'B', todos se vuelven 'B'
+            if (finalValue === 'B' || twinVal === 'B') {
+              finalValue = 'B';
+            } else {
+              finalValue = twinVal;
+            }
+          }
+        }
+
+        return {
+          ...computedNode,
+          style: { ...computedNode.style, zIndex: (computedNode.style?.zIndex || 0) + 1 }, // Forzar re-render estructural
+          data: { ...computedNode.data, value: finalValue }
+        };
+      });
+
+      return {
+        nodes: finalSyncedNodes,
+        edges: updatedEdges.map(e => ({
+          ...e,
+          animated: e.data.value !== 'N',
+          data: { ...e.data, isAnimating: false }
+        }))
+      };
     });
+
+    // Refrescar de forma definitiva el string de la fórmula lógica en el panel lateral
     get().syncFormula();
   },
 
   onNodesChange: (changes) => {
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }));
-
-    // Si el cambio es de posición, recalculamos la fórmula
     if (changes.some(c => c.type === 'position')) {
       get().syncFormula();
     }
@@ -125,8 +258,8 @@ export const useDomain = create((set, get) => ({
     set((state) => ({
       edges: addEdge({
         ...params,
-        type: 'custom', // Usar el tipo personalizado por defecto
-        animated: false, // Quitamos la animación de puntos de React Flow para usar la nuestra
+        type: 'custom',
+        animated: false,
         style: { stroke: '#95a5a6', strokeWidth: 3 },
         data: { isAnimating: false }
       }, state.edges),
@@ -148,17 +281,10 @@ export const useDomain = create((set, get) => ({
         operator: op,
         label,
         allowedOptions: ['N', 'T', 'F', 'B'],
+
+        // SOLUCIÓN: Todos los nodos comparten este mismo canal limpio hacia el store
         onChange: (nodeId, val) => {
-          set((state) => ({
-            nodes: state.nodes.map(n => {
-              // Sincronización monotónica de variables espejo
-              if (n.id === nodeId || (n.type === 'variable' && n.data.label === state.nodes.find(x => x.id === nodeId)?.data?.label)) {
-                return { ...n, data: { ...n.data, value: val } };
-              }
-              return n;
-            })
-          }));
-          get().syncFormula();
+          get().updateNodeValue(nodeId, val);
         }
       }
     };
@@ -183,18 +309,15 @@ export const useDomain = create((set, get) => ({
   clearCircuit: () => {
     const { nodes, edges } = get();
 
-    // 1. Regresa los nodos a su estado neutro 'N' y libera las 4 opciones de los selectores
     const clearedNodes = nodes.map(node => ({
       ...node,
       data: {
         ...node.data,
         value: 'N',
-        allowedOptions: ['N', 'T', 'F', 'B'],
-        hasIncomingConnection: edges.some(e => e.target === node.id)
+        allowedOptions: ['N', 'T', 'F', 'B']
       }
     }));
 
-    // 2. Apaga las animaciones de flujo y pinta las aristas de color gris neutro
     const clearedEdges = edges.map(edge => ({
       ...edge,
       animated: false,
@@ -202,7 +325,6 @@ export const useDomain = create((set, get) => ({
       data: { ...edge.data, color: '#95a5a6', isAnimating: false }
     }));
 
-    // 3. Impacta los estados limpios de forma inmediata y refresca el texto de la fórmula
     set({
       nodes: clearedNodes,
       edges: clearedEdges,

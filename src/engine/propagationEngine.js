@@ -1,226 +1,208 @@
-import { computeLogic, valueColors, mergeInformation, getSortedCandidates, getNotCandidate } from '../utils/logic';
+import { 
+  computeLogic, 
+  valueColors, 
+  mergeInformation, 
+  getHeuristicLowestCostPair,
+  INV_V,
+  futureSets
+} from '../utils/logic';
 
 export const runCalculation = (nodes, edges) => {
-  // 1. Clonación inmutable manteniendo datos actuales
+  // 1. Inicializar estados locales conservando los valores actuales de la UI
   let currentNodes = nodes.map(n => ({
     ...n,
-    data: { ...n.data, allowedOptions: n.data.allowedOptions || ['N', 'T', 'F', 'B'] }
+    data: { 
+      ...n.data, 
+      value: n.data.value || 'N',
+      allowedOptions: [...INV_V] 
+    }
   }));
 
-  console.log("%c[DATA COPY] Estado inicial de los nodos antes de propagar:", "color: #8e44ad; font-weight: bold;");
-  console.log(JSON.parse(JSON.stringify(currentNodes)));
-
-  // Guardamos un registro estático de cuáles nodos tenían un valor inicial != 'N' en la interfaz
-  const initialStimuli = nodes
-    .filter(n => (n.type === 'logic' || n.type === 'output') && n.data.value && n.data.value !== 'N')
-    .map(n => ({ id: n.id, type: n.type, label: n.data.label || n.data.operator || 'output', initialValue: n.data.value }));
-
-  const labelsWithInput = new Set(
-    currentNodes
-      .filter(n => n.type === 'variable' && edges.some(e => e.target === n.id))
-      .map(n => n.data.label)
-  );
-
-  console.log("%c--- INICIO DE PROPAGACIÓN BIDIRECCIONAL MONOTÓNICA ---", "color: #3498db; font-weight: bold;");
-
-  let changed = true;
-  let iterations = 0;
-  const MAX_ITERATIONS = 50;
-
-  // Registro dinámico en caliente para auditar las compuertas arrastradas en la onda inversa
+  const userInitialValues = new Map(nodes.map(n => [n.id, n.data.value || 'N']));
+  const finalSelectorOptions = {};
+  currentNodes.forEach(n => { finalSelectorOptions[n.id] = [...INV_V]; });
   const evaluatedCompuertas = new Set();
 
-  // Mapa de persistencia para evitar que las opciones válidas de la UI se limpien al estabilizar el bucle
-  const finalSelectorOptions = {};
-  currentNodes.forEach(n => {
-    finalSelectorOptions[n.id] = ['N', 'T', 'F', 'B'];
-  });
-
-  while (changed && iterations < MAX_ITERATIONS) {
-    changed = false;
-    iterations++;
-
-    // Estructura de peticiones para acumular los deseos hacia atrás en la presente iteración
-    const inverseRequests = {};
-    currentNodes.forEach(n => { inverseRequests[n.id] = new Set(); });
-
-    // FASE 1: ONDA INVERSA (Backtracking si un nodo con cables de entrada posee un valor != 'N')
-    currentNodes.forEach(node => {
+  // =========================================================================
+  // MOTOR UNIFICADO BASADO EN EL CONJUNTO DE PAREJAS DE MÍNIMO COSTO
+  // =========================================================================
+  currentNodes.forEach(node => {
+    if (node.type === 'logic') {
       const incomingEdges = edges.filter(e => e.target === node.id);
-      const currentValue = node.data.value || 'N';
+      if (incomingEdges.length === 0) return;
 
-      if (currentValue !== 'N' && incomingEdges.length > 0) {
-        if (node.type === 'logic' && node.data.operator === 'NOT' && incomingEdges.length === 1) {
-          const reqVal = getNotCandidate(currentValue);
-          inverseRequests[incomingEdges[0].source].add(reqVal);
-          
-          // NOT solo admite una opción para su entrada directa
-          finalSelectorOptions[incomingEdges[0].source] = [reqVal];
-        }
-        else if ((node.type === 'logic' && incomingEdges.length === 2) || node.type === 'output') {
-          const sortedInputs = [...incomingEdges].sort((a, b) => {
-            const nA = currentNodes.find(n => n.id === a.source);
-            const nB = currentNodes.find(n => n.id === b.source);
-            return (nA?.position.y || 0) - (nB?.position.y || 0);
-          });
+      // Ordenar entradas por posición en el eje Y
+      const sortedInputs = [...incomingEdges].sort((a, b) => {
+        const nA = currentNodes.find(n => n.id === a.source);
+        const nB = currentNodes.find(n => n.id === b.source);
+        return (nA?.position.y || 0) - (nB?.position.y || 0);
+      });
 
-          if (node.type === 'logic') {
-            const candidates = getSortedCandidates(node.data.operator, currentValue);
-            if (candidates.length > 0) {
-              const optimal = candidates[0]; // Selección automática de costo mínimo
-              inverseRequests[sortedInputs[0].source].add(optimal.p);
-              inverseRequests[sortedInputs[1].source].add(optimal.q);
+      const isUnary = node.data.operator === 'NOT';
+      evaluatedCompuertas.add(node.id);
 
-              // Almacenar todas las opciones válidas de los candidatos para la UI
-              finalSelectorOptions[sortedInputs[0].source] = [...new Set(candidates.map(c => c.p))];
-              finalSelectorOptions[sortedInputs[1].source] = [...new Set(candidates.map(c => c.q))];
+      const idPadreP = sortedInputs[0].source;
+      const idPadreQ = !isUnary && sortedInputs[1] ? sortedInputs[1].source : null;
 
-              // Registro en caliente para el reporte de antecedentes
-              evaluatedCompuertas.add(node.id);
+      const originalP = userInitialValues.get(idPadreP);
+      const originalQ = idPadreQ ? userInitialValues.get(idPadreQ) : 'N';
+      
+      // Obtener la restricción de salida Z
+      let restrictZ = userInitialValues.get(node.id);
+      const outgoingEdge = edges.find(e => e.source === node.id);
+      if (outgoingEdge) {
+        const targetNodeValue = userInitialValues.get(outgoingEdge.target);
+        if (targetNodeValue !== 'N') restrictZ = targetNodeValue;
+      }
+
+      // 1. CONSTRUIR CONJUNTO DE PAREJAS VÁLIDAS DIRECTAMENTE DESDE LA TABLA
+      let validConfigs = [];
+
+      INV_V.forEach(p => {
+        // La pareja debe ser compatible con lo que ya tiene P en la UI
+        if (originalP !== 'N' && !futureSets[originalP].has(p)) return;
+
+        const qLoop = isUnary ? [null] : INV_V;
+        qLoop.forEach(q => {
+          // La pareja debe ser compatible con lo que ya tiene Q en la UI
+          if (!isUnary && originalQ !== 'N' && !futureSets[originalQ].has(q)) return;
+
+          const zCalculado = computeLogic(node.data.operator, [p, q]);
+
+          // Si hay restricción en Z, el resultado de la pareja debe satisfacerla
+          if (restrictZ !== 'N') {
+            if (futureSets[restrictZ].has(zCalculado)) {
+              validConfigs.push([p, q, zCalculado]);
             }
           } else {
-            // Un nodo output transfiere la petición completa hacia atrás
-            inverseRequests[sortedInputs[0].source].add(currentValue);
-            finalSelectorOptions[sortedInputs[0].source] = [currentValue];
+            validConfigs.push([p, q, zCalculado]);
+          }
+        });
+      });
+
+      // Manejo de contingencia por contradicción absoluta
+      if (validConfigs.length === 0) {
+        const fallbackP = originalP !== 'N' ? originalP : 'B';
+        const fallbackQ = !isUnary && originalQ !== 'N' ? originalQ : 'B';
+        const fallbackZ = restrictZ !== 'N' ? 'B' : computeLogic(node.data.operator, [fallbackP, fallbackQ]);
+        validConfigs.push([fallbackP, fallbackQ, fallbackZ]);
+      }
+
+      // 2. OBTENER LA PAREJA UNIFICADA DE COSTO MÍNIMO ABSOLUTO
+      const optimaPair = getHeuristicLowestCostPair(validConfigs, isUnary);
+      console.log(`\nCompuerta ${node.data.operator} (ID: ${node.id}) - Pareja Óptima Encontrada: P=${optimaPair.p}, Q=${optimaPair.q}, Z=${optimaPair.z}`);
+
+      if (optimaPair) {
+        // ASIGNACIÓN DE VALORES INDIVIDUALES DERIVADOS DE LA TUPLA MÍNIMA GANADORA
+        const padreP = currentNodes.find(n => n.id === idPadreP);
+        if (padreP) {
+          padreP.data.value = mergeInformation(originalP, optimaPair.p);
+          finalSelectorOptions[idPadreP] = [optimaPair.p]; // Fijar opción única del par mínimo
+        }
+
+        if (idPadreQ) {
+          const padreQ = currentNodes.find(n => n.id === idPadreQ);
+          if (padreQ) {
+            padreQ.data.value = mergeInformation(originalQ, optimaPair.q);
+            finalSelectorOptions[idPadreQ] = [optimaPair.q]; // Fijar opción única del par mínimo
           }
         }
-        else if (node.type === 'variable' && incomingEdges.length === 1) {
-          // Variable con cable de entrada (proceso inverso de asignación)
-          inverseRequests[incomingEdges[0].source].add(currentValue);
-          finalSelectorOptions[incomingEdges[0].source] = [currentValue];
+
+        // Asignar el valor Z unificado a la compuerta y a las hojas de salida
+        node.data.value = mergeInformation(userInitialValues.get(node.id), optimaPair.z);
+        finalSelectorOptions[node.id] = [optimaPair.z];
+
+        if (outgoingEdge) {
+          const hojaNodo = currentNodes.find(n => n.id === outgoingEdge.target);
+          if (hojaNodo) {
+            hojaNodo.data.value = mergeInformation(userInitialValues.get(outgoingEdge.target), optimaPair.z);
+          }
+          finalSelectorOptions[outgoingEdge.target] = [optimaPair.z];
         }
       }
-    });
+    }
+  });
 
-    // FASE 2: COMBINACIÓN Y PROPAGACIÓN DIRECTA (FORWARD)
-    const nextStepNodes = currentNodes.map(node => {
-      const inputEdges = edges.filter(e => e.target === node.id);
-      let calculatedValue = node.data.value || 'N';
-
-      // Si el nodo tiene entradas físicas, se calcula su valor hacia adelante
-      if (inputEdges.length > 0) {
-        const inputValues = inputEdges
-          .sort((a, b) => {
-            const nA = currentNodes.find(n => n.id === a.source);
-            const nB = currentNodes.find(n => n.id === b.source);
-            return (nA?.position.y || 0) - (nB?.position.y || 0);
-          })
-          .map(e => currentNodes.find(n => n.id === e.source)?.data?.value || 'N');
-
-        calculatedValue = node.type === 'logic'
-          ? computeLogic(node.data.operator, inputValues)
-          : (inputValues[0] || 'N');
+  // =========================================================================
+  // RETROPROPAGACIÓN DE VARIABLES ESPEJO EN EL LIENZO
+  // =========================================================================
+  currentNodes.forEach((node, _, srcArray) => {
+    if (node.type === 'variable') {
+      const twinNode = srcArray.find(
+        t => t.type === 'variable' && t.data.label === node.data.label && t.id !== node.id && t.data.value !== 'N'
+      );
+      if (twinNode) {
+        const mergedVal = mergeInformation(node.data.value, twinNode.data.value);
+        node.data.value = mergedVal;
+        finalSelectorOptions[node.id] = [mergedVal]; // Sincronizar el dropdown de la copia
       }
+    }
+  });
 
-      // INTEGRACIÓN MONOTÓNICA DE DESEOS INVERSOS
-      const requests = inverseRequests[node.id];
-      let finalValue = calculatedValue;
+  // =========================================================================
+  // LOG DE REPORTE MATRICIAL (Fiel a tus especificaciones de Python)
+  // =========================================================================
+  evaluatedCompuertas.forEach(compuertaId => {
+    const compuertaNodo = currentNodes.find(n => n.id === compuertaId);
+    if (compuertaNodo) {
+      const opName = compuertaNodo.data.operator;
+      const isUnary = opName === 'NOT';
+      const finalValZ = compuertaNodo.data.value;
 
-      if (requests && requests.size > 0) {
-        const reqArray = Array.from(requests);
-        let consolidatedRequest = reqArray[0];
-        for (let i = 1; i < reqArray.length; i++) {
-          consolidatedRequest = mergeInformation(consolidatedRequest, reqArray[i]);
-        }
-        finalValue = mergeInformation(calculatedValue, consolidatedRequest);
-      }
+      console.log(`\n      MATRIZ DE OPERACIÓN ACTUAL: ${opName}`);
 
-      if (node.data.value !== finalValue) {
-        changed = true;
-      }
-
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          value: finalValue,
-          allowedOptions: finalSelectorOptions[node.id], // Inyección persistente corregida
-          hasIncomingConnection: inputEdges.length > 0
-        }
-      };
-    });
-
-    // FASE 3: SINCRONIZACIÓN GLOBAL DE ALIAS VARIABLES
-    currentNodes = nextStepNodes.map(node => {
-      if (node.type === 'variable' && labelsWithInput.has(node.data.label)) {
-        const masterNode = nextStepNodes.find(n =>
-          n.type === 'variable' &&
-          n.data.label === node.data.label &&
-          edges.some(e => e.target === n.id)
-        );
-
-        if (masterNode && node.data.value !== masterNode.data.value) {
-          changed = true;
-          return { ...node, data: { ...node.data, value: masterNode.data.value } };
-        }
-      }
-      return node;
-    });
-
-    // --- IMPRESIÓN SOLICITADA POR ITERACIÓN ---
-    console.group(`%cIteración ${iterations}`, "color: #f1c40f; font-weight: bold; background: #2c3e50; padding: 2px 6px; borderRadius: 3px;");
-    console.table(currentNodes.map(n => ({
-      ID: n.id,
-      Tipo: n.type,
-      Etiqueta: n.data.label || n.data.operator || 'output',
-      Valor: n.data.value,
-      OpcionesDisponibles: n.data.allowedOptions.join(', ')
-    })));
-    console.log(changed ? "%cEl estado cambió. Siguiente ciclo..." : "%cCircuito Estable.", changed ? "color: #3498db;" : "color: #2ecc71; font-weight: bold;");
-    console.groupEnd();
-  }
-
-  // --- TRAZA DE FINALIZACIÓN EN CONSOLA ---
-  const outputNode = currentNodes.find(n => n.type === 'output');
-  const outputVal = outputNode?.data?.value || 'N';
-  const trace = Array.from(labelsWithInput).map(label => {
-    const val = currentNodes.find(n => n.data.label === label)?.data.value;
-    return `${label}(${val})`;
-  }).join(", ");
-  console.log(`%cIteraciones Totales: ${iterations} | ${trace} -- resultado (${outputVal})`, "color: #2ecc71; font-weight: bold;");
-
-  // === REPORTE DE ANÁLISIS DE PREIMÁGENES MEJORADO EN CONJUNTOS ===
-  if (initialStimuli.length > 0 || evaluatedCompuertas.size > 0) {
-    console.group("%c[ANÁLISIS DE ANTECEDENTES INVERSOS INTERACTIVOS]", "color: #e67e22; font-weight: bold; background: #fdf2e9; padding: 4px; border: 1px solid #e67e22;");
-    
-    // 1. Desglosar estímulos iniciales de la UI
-    initialStimuli.forEach(stim => {
-      console.log(`%c[Estímulo UI] Nodo: [${stim.label}] (ID: ${stim.id}) | Valor inicial forzado: ${stim.initialValue}`, "font-weight: bold; color: #d35400;");
-      if (stim.type === 'output') {
-        console.log(`  -> Entrada inmediata admitida: [${stim.initialValue}] (Transferencia directa de cable)`);
-      }
-    });
-
-    // 2. Desglosar todas las compuertas binarias afectadas con sus conjuntos ordenados (valor 1, valor 2)
-    evaluatedCompuertas.forEach(compuertaId => {
-      const compuertaNodo = currentNodes.find(n => n.id === compuertaId);
-      if (compuertaNodo) {
-        const finalVal = compuertaNodo.data.value; 
-        const candidates = getSortedCandidates(compuertaNodo.data.operator, finalVal);
-
-        console.log(`%c[Inferencia en Cascada] Compuerta: [${compuertaNodo.data.operator}] (ID: ${compuertaId}) | Resolviendo para salida: ${finalVal}`, "font-weight: bold; color: #2980b9;");
-        console.log(`  -> Combinaciones posibles en conjuntos (valor 1, valor 2):`);
-        
-        candidates.forEach((c, idx) => {
-          console.log(`     ${idx + 1}. Conjunto: (${c.p}, ${c.q}) | Costo total: ${c.cost} ${idx === 0 ? ' <- [Seleccionada por Heurística]' : ''}`);
+      if (isUnary) {
+        console.log("      P   |   Resultado (NOT P)");
+        console.log("    +-------------------------+");
+        INV_V.forEach(p => {
+          const zCalc = computeLogic(opName, [p]);
+          if (futureSets[finalValZ].has(zCalc)) {
+            console.log(`      ${p}   |   ${zCalc}`);
+          } else {
+            console.log(`      ${p}   |   -`);
+          }
         });
+        console.log("    +-------------------------+");
+      } else {
+        console.log("      Q=N   Q=T   Q=F   Q=B");
+        console.log("    +-------------------------+");
+        INV_V.forEach(p => {
+          let rowStr = `P=${p} |`;
+          INV_V.forEach(q => {
+            const zCalc = computeLogic(opName, [p, q]);
+            if (futureSets[finalValZ].has(zCalc)) {
+              rowStr += `  ${zCalc}   `;
+            } else {
+              rowStr += "  -    ";
+            }
+          });
+          console.log(rowStr + "|");
+        });
+        console.log("    +-------------------------+");
       }
-    });
+    }
+  });
 
-    console.groupEnd();
-  }
+  // Mapear las opciones atómicas finales calculadas hacia el dropdown de ReactFlow
+  const finalNodes = currentNodes.map(node => ({
+    ...node,
+    data: {
+      ...node.data,
+      allowedOptions: finalSelectorOptions[node.id] || [...INV_V]
+    }
+  }));
 
-  // Actualización estética de aristas
+  // Sincronizar cables estáticos finales
   const updatedEdges = edges.map(edge => {
-    const src = currentNodes.find(n => n.id === edge.source);
+    const src = finalNodes.find(n => n.id === edge.source);
     const val = src?.data?.value || 'N';
     return {
       ...edge,
       animated: val !== 'N',
-      style: { stroke: valueColors[val], strokeWidth: 3, strokeDasharray: '5,5' },
-      data: { ...edge.data, color: valueColors[val], isAnimating: false }
+      style: { stroke: valueColors[val] || valueColors['N'], strokeWidth: 3, strokeDasharray: '5,5' },
+      data: { ...edge.data, color: valueColors[val] || valueColors['N'], isAnimating: false }
     };
   });
 
-  return { updatedNodes: currentNodes, updatedEdges };
+  return { updatedNodes: finalNodes, updatedEdges };
 };

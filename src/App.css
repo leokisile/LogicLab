@@ -44,12 +44,7 @@ body {
   background: #1e1e1e;
 }
 
-/* Estilo para el estado BOTH: Mitad rojo, mitad verde */
-.both-gradient-bg {
-  background: linear-gradient(90deg, #e74c3c 50%, #2ecc71 50%) !important;
-  color: white !important;
-  border: 2px solid #f39c12 !important; /* Borde naranja de advertencia */
-}
+/* El estado BOTH ahora se maneja completamente con estilos en línea en los componentes de React Flow */
 
 .btn {
   padding: 10px;
@@ -98,7 +93,7 @@ body {
   box-shadow: none !important;
 }
 
-/* Opcional: Si quieres que el texto no se herede centrado de index.css */
+/* Asegura que el texto mantenga su alineación correcta */
 .react-flow__node {
   text-align: left;
 }

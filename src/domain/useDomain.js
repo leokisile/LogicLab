@@ -53,41 +53,20 @@ export const useDomain = create((set, get) => ({
     }
   },
 
-  // ACTUALIZADOR GLOBAL UNIFICADO (Disparado directamente por los componentes)
   updateNodeValue: (nodeId, newValue) => {
-    console.log("=== 🚀 INICIO DE PROPAGACIÓN EN STORE ===");
-    console.log(`[Click Original] ID del Nodo: ${nodeId} -> Nuevo Valor: ${newValue}`);
-
     set((state) => {
-      // 1. Encontrar el nodo que disparó el cambio original
       const targetNode = state.nodes.find((n) => n.id === nodeId);
+      if (!targetNode) return {};
 
-      if (!targetNode) {
-        console.warn(`❌ Error crítico: No se encontró el nodo con ID "${nodeId}" en el store.`);
-        return {};
-      }
-
-      console.log(`[Nodo Encontrado] Tipo: "${targetNode.type}", Etiqueta/Label: "${targetNode.data?.label}"`);
-
-      // 2. Mapear y registrar qué pasa con cada nodo en el lienzo
       const updatedNodes = state.nodes.map((node) => {
-
-        // REGLA UNIFICADA: Nodo modificado O variable espejo con la misma etiqueta
         const esMismoId = node.id === nodeId;
         const esVariableEspejo = targetNode.type === 'variable' &&
           node.type === 'variable' &&
           node.data.label === targetNode.data.label;
 
         if (esMismoId || esVariableEspejo) {
-          console.log(
-            `✨ [MODIFICANDO] Nodo ID: "${node.id}" (${node.data.label || 'sin label'}) | ` +
-            `Motivo: ${esMismoId ? "Es el nodo clickeado" : "Es un nodo espejo"} | ` +
-            `Valor anterior: "${node.data.value}" -> Valor nuevo: "${newValue}"`
-          );
-
           return {
             ...node,
-            // Forzamos un cambio superficial extra en el estilo por si ReactFlow está encachando el componente
             style: { ...node.style, zIndex: (node.style?.zIndex || 0) + 1 },
             data: {
               ...node.data,
@@ -96,149 +75,181 @@ export const useDomain = create((set, get) => ({
             }
           };
         }
-
-        // Si no cumple la condición, el nodo pasa de largo intacto
         return node;
       });
-
-      console.log("=== 📦 FIN DEL MAPEO: ESTADO FINAL QUE SE GUARDARÁ ===");
-      console.log(updatedNodes.map(n => ({ id: n.id, label: n.data.label, value: n.data.value })));
 
       return { nodes: updatedNodes };
     });
 
-    // Sincronizar inmediatamente la fórmula del panel izquierdo
     get().syncFormula();
   },
 
   calculate: async () => {
     const { nodes, edges } = get();
 
-    // MAPA DE VALORES ORIGINALES: Guardamos una fotografía de los valores antes del cálculo
+    // Guardamos qué nodos tenían un valor puesto por el usuario antes de calcular
     const originalValuesMap = new Map(nodes.map(n => [n.id, n.data.value]));
+    
 
-    // 1. Ejecutar el motor de cálculo matemático primario
-    const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
-
-    // Resetear el estado visual de animación de todos los cables
-    set({ edges: edges.map(e => ({ ...e, data: { ...e.data, isAnimating: false } })) });
-
-    const sortedEdges = [...updatedEdges].sort((a, b) => {
-      const nodeA = nodes.find(n => n.id === a.source);
-      const nodeB = nodes.find(n => n.id === b.source);
-      return (nodeA?.position.x || 0) - (nodeB?.position.x || 0);
+    // ====================================================================
+    // REINICIO VISUAL FORZADO: Limpieza profunda de estados
+    // ====================================================================
+    set({
+      nodes: nodes.map(n => ({ 
+        ...n, 
+        data: { ...n.data, value: 'N' } 
+      })),
+      edges: edges.map(e => ({ 
+        ...e, 
+        animated: false,
+        style: { stroke: '#95a5a6', strokeWidth: 3 },
+        data: { 
+          ...e.data, 
+          isAnimating: false, 
+          isPainted: false, // <--- ESTO LIMPIA EL RASTRO DE COLOR
+          color: '#95a5a6',
+          animationKey: Date.now() + Math.random() // Fuerza recreación del SVG
+        } 
+      }))
     });
 
-    // 2. Animación secuencial de cables (Flujo de izquierda a derecha)
-    for (const edge of sortedEdges) {
-      const sourceNode = updatedNodes.find(n => n.id === edge.source);
-      const val = sourceNode?.data?.value || 'N';
+    // Aumentamos este tiempo a 600ms para asegurar que el navegador procese el "apagado"
+    await new Promise(resolve => setTimeout(resolve, 600));
+    const { updatedNodes, updatedEdges } = runCalculation(nodes, edges);
 
-      // Encender pulso de animación en el cable actual
+
+    // ====================================================================
+    // ALGORITMO BFS: Múltiples epicentros basados en los datos conocidos
+    // ====================================================================
+    const nodeDepths = {};
+    const edgeAnimationMap = {}; 
+    let maxDepth = 0;
+    const queue = [];
+
+    // 1. Llenamos la cola inicial con TODOS los nodos que el usuario llenó (T, F, B)
+    nodes.forEach(n => {
+      if (originalValuesMap.get(n.id) !== 'N') {
+        queue.push(n.id);
+        nodeDepths[n.id] = 0;
+      }
+    });
+
+    // 2. Fallback: Si el usuario le dio calcular con todo vacío ('N'), empezamos por las variables por defecto
+    if (queue.length === 0) {
+      nodes.filter(n => n.type === 'variable').forEach(n => {
+        queue.push(n.id);
+        nodeDepths[n.id] = 0;
+      });
+    }
+
+    // 3. Propagación de las ondas expansivas
+    while (queue.length > 0) {
+      const currId = queue.shift();
+      const currentDepth = nodeDepths[currId];
+      maxDepth = Math.max(maxDepth, currentDepth);
+
+      // Evaluar hacia adelante
+      edges.filter(e => e.source === currId).forEach(e => {
+        if (nodeDepths[e.target] === undefined) {
+          nodeDepths[e.target] = currentDepth + 1;
+          edgeAnimationMap[e.id] = { depth: currentDepth + 1, isReversed: false };
+          queue.push(e.target);
+        } else if (!edgeAnimationMap[e.id]) {
+          edgeAnimationMap[e.id] = { depth: currentDepth + 1, isReversed: false };
+        }
+      });
+
+      // Evaluar hacia atrás (Reversa)
+      edges.filter(e => e.target === currId).forEach(e => {
+        if (nodeDepths[e.source] === undefined) {
+          nodeDepths[e.source] = currentDepth + 1;
+          edgeAnimationMap[e.id] = { depth: currentDepth + 1, isReversed: true };
+          queue.push(e.source);
+        } else if (!edgeAnimationMap[e.id]) {
+          edgeAnimationMap[e.id] = { depth: currentDepth + 1, isReversed: true };
+        }
+      });
+    }
+
+    // Encendido de los "epicentros" (Nivel 0)
+    set((state) => ({
+      nodes: state.nodes.map(n => {
+        if (nodeDepths[n.id] === 0) {
+          const finalNode = updatedNodes.find(un => un.id === n.id);
+          return { ...n, data: { ...n.data, value: finalNode?.data?.value || 'N' } };
+        }
+        return n;
+      })
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Despliegue de animaciones capa por capa
+    for (let d = 1; d <= maxDepth; d++) {
+      const currentEdges = edges.filter(e => edgeAnimationMap[e.id]?.depth === d);
+      if (currentEdges.length === 0) continue;
+
       set((state) => ({
-        edges: state.edges.map(e =>
-          e.id === edge.id ? {
-            ...e,
-            data: { ...e.data, isAnimating: true, color: valueColors[val], animationKey: Date.now() }
-          } : e
-        )
+        edges: state.edges.map(e => {
+          if (currentEdges.some(ce => ce.id === e.id)) {
+            const finalEdge = updatedEdges.find(ue => ue.id === e.id);
+            const finalColor = finalEdge?.data?.color || '#95a5a6';
+            const isReversed = edgeAnimationMap[e.id].isReversed;
+            
+            return { 
+              ...e, 
+              data: { ...e.data, isAnimating: true, color: finalColor, isReversed, animationKey: Date.now() } 
+            };
+          }
+          return e;
+        })
       }));
 
-      // Retraso de renderizado para simular el viaje de la señal eléctrica
       await new Promise(resolve => setTimeout(resolve, 850));
 
-      // IMPACTO EN TIEMPO REAL: Actualizar nodo destino Y sincronizar de inmediato si es espejo
       set((state) => {
-        const targetNodeInCalculation = updatedNodes.find(un => un.id === edge.target);
-        let newValueForTarget = targetNodeInCalculation?.data?.value || 'N';
-
-        // 🌟 LOGICA DE CONTRADICCIÓN: Si el destino tenía T o F original y recibe su inverso, se convierte en 'B'
-        const userOriginalTarget = originalValuesMap.get(edge.target) || 'N';
-        if (userOriginalTarget !== 'N' && newValueForTarget !== 'N' && userOriginalTarget !== newValueForTarget) {
-          newValueForTarget = 'B';
-        }
+        const nodesToSync = nodes.filter(n => nodeDepths[n.id] === d);
 
         const nodesWithStepSync = state.nodes.map(n => {
-          // Si es el nodo destino que recibió el impacto del cable
-          if (n.id === edge.target) {
-            return { ...n, data: { ...n.data, value: newValueForTarget } };
+          if (nodesToSync.some(ns => ns.id === n.id)) {
+            const finalNode = updatedNodes.find(un => un.id === n.id);
+            return { ...n, data: { ...n.data, value: finalNode?.data?.value || 'N' } };
           }
-
-          // 🌟 REGLA DE ESPEJO CORREGIDA: Si el nodo afectado (o cualquiera de sus clones) 
-          // tiene la misma etiqueta, debe absorber el nuevo valor (incluyendo 'B' si colapsó)
-          if (
-            targetNodeInCalculation?.type === 'variable' &&
-            n.type === 'variable' &&
-            n.data.label === targetNodeInCalculation.data.label
-          ) {
-            return { ...n, data: { ...n.data, value: newValueForTarget } };
-          }
-
           return n;
         });
 
-        // Apagar el cable actual tras dejar su valor en el nodo
-        const updatedEdgesState = state.edges.map(e =>
-          e.id === edge.id ? { ...e, data: { ...e.data, isAnimating: false } } : e
-        );
+        const updatedEdgesState = state.edges.map(e => {
+          if (currentEdges.some(ce => ce.id === e.id)) {
+            return { 
+              ...e, 
+              style: { stroke: e.data.color, strokeWidth: 4 },
+              data: { ...e.data, isAnimating: false, isPainted: true } 
+            };
+          }
+          return e;
+        });
 
         return { nodes: nodesWithStepSync, edges: updatedEdgesState };
       });
     }
 
-    // 3. ESTADO FINAL: Aplicar el cierre del cálculo asegurando consistencia absoluta
-    set((state) => {
-      // Tomamos la salida del motor y aplicamos la misma verificación para el estado de cierre definitivo
-      const finalSyncedNodes = updatedNodes.map((computedNode) => {
-        let finalValue = computedNode.data.value || 'N';
-        const userOriginalVal = originalValuesMap.get(computedNode.id) || 'N';
-
-        // Mantener el estado 'B' si hubo colisión directa en este nodo
-        if (userOriginalVal !== 'N' && finalValue !== 'N' && userOriginalVal !== finalValue) {
-          finalValue = 'B';
-        }
-
-        if (computedNode.type === 'variable') {
-          // Buscamos si alguna de sus copias gemelas adquirió un valor prioritario o mutó a 'B'
-          const anyTwinWithValue = updatedNodes.find(
-            t => t.type === 'variable' && t.data.label === computedNode.data.label && t.data.value !== 'N'
-          );
-
-          if (anyTwinWithValue) {
-            let twinVal = anyTwinWithValue.data.value;
-            const twinOriginalVal = originalValuesMap.get(anyTwinWithValue.id) || 'N';
-            
-            if (twinOriginalVal !== 'N' && twinVal !== 'N' && twinOriginalVal !== twinVal) {
-              twinVal = 'B';
-            }
-
-            // Sincronización familiar: Si cualquiera es 'B', todos se vuelven 'B'
-            if (finalValue === 'B' || twinVal === 'B') {
-              finalValue = 'B';
-            } else {
-              finalValue = twinVal;
-            }
-          }
-        }
-
+    // Cierre
+    set({
+      nodes: updatedNodes.map(n => ({
+        ...n,
+        style: { ...n.style, zIndex: (n.style?.zIndex || 0) + 1 }
+      })),
+      edges: updatedEdges.map(e => {
+        const isEdgeActive = e.data.color && e.data.color !== '#95a5a6';
         return {
-          ...computedNode,
-          style: { ...computedNode.style, zIndex: (computedNode.style?.zIndex || 0) + 1 }, // Forzar re-render estructural
-          data: { ...computedNode.data, value: finalValue }
-        };
-      });
-
-      return {
-        nodes: finalSyncedNodes,
-        edges: updatedEdges.map(e => ({
           ...e,
-          animated: e.data.value !== 'N',
-          data: { ...e.data, isAnimating: false }
-        }))
-      };
+          animated: isEdgeActive, 
+          style: { ...e.style, strokeWidth: isEdgeActive ? 4 : 3 },
+          data: { ...e.data, isAnimating: false, isPainted: isEdgeActive }
+        };
+      })
     });
 
-    // Refrescar de forma definitiva el string de la fórmula lógica en el panel lateral
     get().syncFormula();
   },
 
@@ -281,8 +292,6 @@ export const useDomain = create((set, get) => ({
         operator: op,
         label,
         allowedOptions: ['N', 'T', 'F', 'B'],
-
-        // SOLUCIÓN: Todos los nodos comparten este mismo canal limpio hacia el store
         onChange: (nodeId, val) => {
           get().updateNodeValue(nodeId, val);
         }
@@ -322,7 +331,7 @@ export const useDomain = create((set, get) => ({
       ...edge,
       animated: false,
       style: { stroke: '#95a5a6', strokeWidth: 3 },
-      data: { ...edge.data, color: '#95a5a6', isAnimating: false }
+      data: { ...edge.data, color: '#95a5a6', isAnimating: false, isPainted: false }
     }));
 
     set({

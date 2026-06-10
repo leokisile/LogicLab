@@ -163,7 +163,7 @@ export const runCalculation = (nodes, edges) => {
       const isUnary = opName === 'NOT';
       const finalValZ = compuertaNodo.data.value;
 
-      console.log(`\n      MATRIZ DE OPERACIÓN ACTUAL: ${opName}`);
+      console.log(`\n      MATRIZ DE COMPUERTA ACTUAL: ${opName}`);
 
       if (isUnary) {
         console.log("      P   |   Resultado (NOT P)");

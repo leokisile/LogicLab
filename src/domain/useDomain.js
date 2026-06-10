@@ -29,7 +29,7 @@ const getFormulaText = (nodes, edges, nodeId) => {
     return parentFormulas[0] || "?";
   }
 
-  const ops = { AND: '∧', OR: '∨', NOT: '¬', IMPLIES: '→', EQUIV: '↔' };
+  const ops = { AND: '∧', OR: '∨', NOT: '¬', IMPLIES: '→', EQUIV: '↔', XOR: '⊕' };
   const symbol = ops[node.data.operator] || node.data.operator;
 
   if (node.data.operator === 'NOT') {
@@ -41,7 +41,7 @@ const getFormulaText = (nodes, edges, nodeId) => {
 export const useDomain = create((set, get) => ({
   nodes: [],
   edges: [],
-  formula: "Diseña un circuito...",
+  formula: "Diseña una fórmula...",
 
   syncFormula: () => {
     const { nodes, edges } = get();

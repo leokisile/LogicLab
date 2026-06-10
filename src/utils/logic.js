@@ -71,11 +71,11 @@ export const computeLogic = (operator, inputs) => {
 export const getMinimalElements = (valuesSet) => {
   if (!valuesSet || valuesSet.size === 0) return new Set();
   if (valuesSet.has('N')) return new Set(['N']);
-  
+
   const minimal = new Set();
   if (valuesSet.has('T')) minimal.add('T');
   if (valuesSet.has('F')) minimal.add('F');
-  
+
   if (minimal.size === 0 && valuesSet.has('B')) {
     minimal.add('B');
   }
@@ -86,15 +86,25 @@ export const getMinimalElements = (valuesSet) => {
  * Heurística para obtener la pareja única (o primera óptima) de costo mínimo
  * Suma los pesos de P y Q (N=0, T/F=1, B=2)
  */
-export const getHeuristicLowestCostPair = (validConfigs, isUnary = false) => {
+export const getHeuristicLowestCostPair = (validConfigs, isUnary = false, fixedP = 'N', fixedQ = 'N') => {
   if (!validConfigs || validConfigs.length === 0) return null;
 
   let bestConfig = validConfigs[0];
   let minCost = Infinity;
 
   validConfigs.forEach(c => {
-    const costP = VALUE_WEIGHTS[c[0]];
-    const costQ = isUnary ? 0 : VALUE_WEIGHTS[c[1]];
+    const p = c[0];
+    const q = c[1];
+
+    // Cálculo de costo base
+    let costP = VALUE_WEIGHTS[p];
+    let costQ = isUnary ? 0 : VALUE_WEIGHTS[q];
+
+    // Penalización drástica si el valor de la pareja contradice el valor fijo
+    // Si fixedP es T, y la pareja propone F, aumentamos el costo para que no sea elegida
+    if (fixedP !== 'N' && p !== fixedP) costP += 10;
+    if (!isUnary && fixedQ !== 'N' && q !== fixedQ) costQ += 10;
+
     const total = costP + costQ;
 
     if (total < minCost) {
@@ -103,9 +113,5 @@ export const getHeuristicLowestCostPair = (validConfigs, isUnary = false) => {
     }
   });
 
-  return {
-    p: bestConfig[0],
-    q: bestConfig[1],
-    z: bestConfig[2]
-  };
+  return { p: bestConfig[0], q: bestConfig[1], z: bestConfig[2] };
 };

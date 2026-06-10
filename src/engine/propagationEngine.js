@@ -1,7 +1,7 @@
-import { 
-  computeLogic, 
-  valueColors, 
-  mergeInformation, 
+import {
+  computeLogic,
+  valueColors,
+  mergeInformation,
   getHeuristicLowestCostPair,
   INV_V,
   futureSets
@@ -11,10 +11,10 @@ export const runCalculation = (nodes, edges) => {
   // 1. Inicializar estados locales conservando los valores actuales de la UI
   let currentNodes = nodes.map(n => ({
     ...n,
-    data: { 
-      ...n.data, 
+    data: {
+      ...n.data,
       value: n.data.value || 'N',
-      allowedOptions: [...INV_V] 
+      allowedOptions: [...INV_V]
     }
   }));
 
@@ -46,7 +46,12 @@ export const runCalculation = (nodes, edges) => {
 
       const originalP = userInitialValues.get(idPadreP);
       const originalQ = idPadreQ ? userInitialValues.get(idPadreQ) : 'N';
-      
+
+      // --- NUEVA VALIDACIÓN: Si el nodo padre ya tiene un valor, 
+      // no permitas que la heurística lo cambie por otra cosa ---
+      const forceP = originalP !== 'N' ? originalP : null;
+      const forceQ = originalQ !== 'N' ? originalQ : null;
+
       // Obtener la restricción de salida Z
       let restrictZ = userInitialValues.get(node.id);
       const outgoingEdge = edges.find(e => e.source === node.id);
@@ -59,12 +64,12 @@ export const runCalculation = (nodes, edges) => {
       let validConfigs = [];
 
       INV_V.forEach(p => {
-        // La pareja debe ser compatible con lo que ya tiene P en la UI
+        if (forceP && p !== forceP) return; // Si P está fijo, solo acepta P
         if (originalP !== 'N' && !futureSets[originalP].has(p)) return;
 
         const qLoop = isUnary ? [null] : INV_V;
         qLoop.forEach(q => {
-          // La pareja debe ser compatible con lo que ya tiene Q en la UI
+          if (forceQ && q !== forceQ) return; // Si Q está fijo, solo acepta Q
           if (!isUnary && originalQ !== 'N' && !futureSets[originalQ].has(q)) return;
 
           const zCalculado = computeLogic(node.data.operator, [p, q]);
@@ -82,14 +87,23 @@ export const runCalculation = (nodes, edges) => {
 
       // Manejo de contingencia por contradicción absoluta
       if (validConfigs.length === 0) {
-        const fallbackP = originalP !== 'N' ? originalP : 'B';
-        const fallbackQ = !isUnary && originalQ !== 'N' ? originalQ : 'B';
-        const fallbackZ = restrictZ !== 'N' ? 'B' : computeLogic(node.data.operator, [fallbackP, fallbackQ]);
-        validConfigs.push([fallbackP, fallbackQ, fallbackZ]);
+        // En lugar de forzar B, asignamos B al resultado y marcamos a los padres para que se actualicen
+        const fallbackVal = 'B';
+        validConfigs.push([fallbackVal, fallbackVal, fallbackVal]);
       }
 
       // 2. OBTENER LA PAREJA UNIFICADA DE COSTO MÍNIMO ABSOLUTO
-      const optimaPair = getHeuristicLowestCostPair(validConfigs, isUnary);
+      // En propagationEngine.js, dentro del loop de nodos:
+
+      // ... (después de construir validConfigs)
+
+      // 2. OBTENER LA PAREJA UNIFICADA DE COSTO MÍNIMO (PASANDO VALORES FIJOS)
+      const optimaPair = getHeuristicLowestCostPair(
+        validConfigs,
+        isUnary,
+        originalP, // Pasamos el valor fijo de P
+        originalQ  // Pasamos el valor fijo de Q
+      );
       console.log(`\nCompuerta ${node.data.operator} (ID: ${node.id}) - Pareja Óptima Encontrada: P=${optimaPair.p}, Q=${optimaPair.q}, Z=${optimaPair.z}`);
 
       if (optimaPair) {

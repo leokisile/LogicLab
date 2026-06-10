@@ -39,10 +39,10 @@ const OR_TABLE = {
 };
 
 const XOR_TABLE = {
-  N: { N: 'N', T: 'T', F: 'N', B: 'T' },
-  T: { N: 'T', T: 'N', F: 'T', B: 'N' },
-  F: { N: 'N', T: 'T', F: 'N', B: 'T' },
-  B: { N: 'T', T: 'N', F: 'T', B: 'N' }
+  N: { N: 'N', T: 'F', F: 'N', B: 'B' },
+  T: { N: 'F', T: 'F', F: 'T', B: 'B' },
+  F: { N: 'N', T: 'T', F: 'F', B: 'B' },
+  B: { N: 'B', T: 'B', F: 'B', B: 'B' }
 };
 
 const NOT_TABLE = { T: 'F', F: 'T', B: 'B', N: 'N' };

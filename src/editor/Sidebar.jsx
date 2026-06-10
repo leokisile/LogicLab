@@ -14,6 +14,7 @@ export default function Sidebar() {
       <button className="btn" onClick={() => addNode('LOGIC', 'AND')}>AND (∧)</button>
       <button className="btn" onClick={() => addNode('LOGIC', 'OR')}>OR (∨)</button>
       <button className="btn" onClick={() => addNode('LOGIC', 'NOT')}>NOT (¬)</button>
+      <button className="btn" onClick={() => addNode('LOGIC', 'XOR')}>XOR (⊕)</button>
       <button className="btn" onClick={() => addNode('LOGIC', 'IMPLIES')}>IF THEN (→)</button>
       <button className="btn" onClick={() => addNode('LOGIC', 'EQUIV')}>IFF (↔)</button>
 

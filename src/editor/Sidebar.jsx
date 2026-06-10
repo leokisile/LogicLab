@@ -3,7 +3,15 @@ import { useDomain } from '../domain/useDomain';
 
 export default function Sidebar() {
   // CORRECCIÓN: Desestructuramos también 'clearCircuit'
-  const { addNode, formula, calculate, clearCircuit } = useDomain(); 
+  const { addNode, formula, calculate, clearCircuit, exportCircuit, importCircuit } = useDomain();
+
+  const handleLoad = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => importCircuit(e.target.result);
+    reader.readAsText(file);
+  };
 
   return (
     <aside className="sidebar">
@@ -25,15 +33,23 @@ export default function Sidebar() {
 
       <button className="btn btn-calc" onClick={calculate}>CALCULAR</button>
 
+      {/* Botones de Persistencia */}
+      <button className="btn" onClick={exportCircuit} style={{ background: '#3498db' }}>💾 Guardar Diagrama</button>
+
+      <label className="btn" style={{ background: '#2980b9', cursor: 'pointer', display: 'block', textAlign: 'center', marginTop: '5px' }}>
+        📂 Cargar Diagrama
+        <input type="file" onChange={handleLoad} accept=".json" style={{ display: 'none' }} />
+      </label>
+
       {/* === AÑADIR BOTÓN DE LIMPIEZA DESDE AQUÍ === */}
-      <button 
-        className="btn" 
-        onClick={clearCircuit} 
-        style={{ 
-          marginTop: '10px', 
-          background: '#e74c3c', 
-          color: 'white', 
-          fontWeight: 'bold' 
+      <button
+        className="btn"
+        onClick={clearCircuit}
+        style={{
+          marginTop: '10px',
+          background: '#e74c3c',
+          color: 'white',
+          fontWeight: 'bold'
         }}
       >
         LIMPIAR LIENZO

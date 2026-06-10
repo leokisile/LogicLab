@@ -315,6 +315,58 @@ export const useDomain = create((set, get) => ({
     get().syncFormula();
   },
 
+  exportCircuit: () => {
+    const { nodes, edges } = get();
+    // Filtramos solo la estructura: omitimos el campo 'value' y 'allowedOptions'
+    const cleanNodes = nodes.map(({ id, type, position, data }) => ({
+      id,
+      type,
+      position,
+      data: {
+        id: data.id,
+        operator: data.operator,
+        label: data.label,
+        // Eliminamos value y allowedOptions para que el diagrama sea "limpio"
+      }
+    }));
+
+    const cleanEdges = edges.map(({ id, source, target, type }) => ({
+      id, source, target, type
+    }));
+
+    const circuitData = JSON.stringify({ nodes: cleanNodes, edges: cleanEdges });
+    
+    // Descargar como archivo .json
+    const blob = new Blob([circuitData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'circuito.json';
+    link.click();
+  },
+
+  importCircuit: (jsonString) => {
+    const { nodes: importedNodes, edges: importedEdges } = JSON.parse(jsonString);
+
+    // Restauramos el estado con los valores por defecto ('N')
+    const restoredNodes = importedNodes.map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        value: 'N',
+        allowedOptions: ['N', 'T', 'F', 'B'],
+        onChange: (nodeId, val) => get().updateNodeValue(nodeId, val)
+      }
+    }));
+
+    set({ 
+      nodes: restoredNodes, 
+      edges: importedEdges 
+    });
+    
+    get().syncFormula();
+  },
+
   clearCircuit: () => {
     const { nodes, edges } = get();
 

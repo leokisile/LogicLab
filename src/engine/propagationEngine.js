@@ -8,7 +8,6 @@ import {
 } from '../utils/logic';
 
 export const runCalculation = (nodes, edges) => {
-  // 1. Inicializar estados locales conservando los valores actuales de la UI
   let currentNodes = nodes.map(n => ({
     ...n,
     data: {
@@ -19,19 +18,15 @@ export const runCalculation = (nodes, edges) => {
   }));
 
   const userInitialValues = new Map(nodes.map(n => [n.id, n.data.value || 'N']));
-  const finalSelectorOptions = {};
-  currentNodes.forEach(n => { finalSelectorOptions[n.id] = [...INV_V]; });
+  const optionsMap = new Map();
+  nodes.forEach(n => optionsMap.set(n.id, new Set(['N']))); // Inicializamos con N siempre
   const evaluatedCompuertas = new Set();
 
-  // =========================================================================
-  // MOTOR UNIFICADO BASADO EN EL CONJUNTO DE PAREJAS DE MÍNIMO COSTO
-  // =========================================================================
   currentNodes.forEach(node => {
     if (node.type === 'logic') {
       const incomingEdges = edges.filter(e => e.target === node.id);
       if (incomingEdges.length === 0) return;
 
-      // Ordenar entradas por posición en el eje Y
       const sortedInputs = [...incomingEdges].sort((a, b) => {
         const nA = currentNodes.find(n => n.id === a.source);
         const nB = currentNodes.find(n => n.id === b.source);
@@ -47,12 +42,9 @@ export const runCalculation = (nodes, edges) => {
       const originalP = userInitialValues.get(idPadreP);
       const originalQ = idPadreQ ? userInitialValues.get(idPadreQ) : 'N';
 
-      // --- NUEVA VALIDACIÓN: Si el nodo padre ya tiene un valor, 
-      // no permitas que la heurística lo cambie por otra cosa ---
       const forceP = originalP !== 'N' ? originalP : null;
       const forceQ = originalQ !== 'N' ? originalQ : null;
 
-      // Obtener la restricción de salida Z
       let restrictZ = userInitialValues.get(node.id);
       const outgoingEdge = edges.find(e => e.source === node.id);
       if (outgoingEdge) {
@@ -60,95 +52,59 @@ export const runCalculation = (nodes, edges) => {
         if (targetNodeValue !== 'N') restrictZ = targetNodeValue;
       }
 
-      // 1. CONSTRUIR CONJUNTO DE PAREJAS VÁLIDAS DIRECTAMENTE DESDE LA TABLA
       let validConfigs = [];
-
       INV_V.forEach(p => {
-        if (forceP && p !== forceP) return; // Si P está fijo, solo acepta P
+        if (forceP && p !== forceP) return;
         if (originalP !== 'N' && !futureSets[originalP].has(p)) return;
 
         const qLoop = isUnary ? [null] : INV_V;
         qLoop.forEach(q => {
-          if (forceQ && q !== forceQ) return; // Si Q está fijo, solo acepta Q
+          if (forceQ && q !== forceQ) return;
           if (!isUnary && originalQ !== 'N' && !futureSets[originalQ].has(q)) return;
 
           const zCalculado = computeLogic(node.data.operator, [p, q]);
-
-          // Si hay restricción en Z, el resultado de la pareja debe satisfacerla
-          if (restrictZ !== 'N') {
-            if (futureSets[restrictZ].has(zCalculado)) {
-              validConfigs.push([p, q, zCalculado]);
-            }
-          } else {
+          if (restrictZ === 'N' || futureSets[restrictZ].has(zCalculado)) {
             validConfigs.push([p, q, zCalculado]);
+
+            // Acumular opciones válidas
+            optionsMap.get(idPadreP).add(p);
+            if (idPadreQ) optionsMap.get(idPadreQ).add(q);
+            optionsMap.get(node.id).add(zCalculado);
+            if (outgoingEdge) optionsMap.get(outgoingEdge.target).add(zCalculado);
           }
         });
       });
 
-      // Manejo de contingencia por contradicción absoluta
-      if (validConfigs.length === 0) {
-        // En lugar de forzar B, asignamos B al resultado y marcamos a los padres para que se actualicen
-        const fallbackVal = 'B';
-        validConfigs.push([fallbackVal, fallbackVal, fallbackVal]);
-      }
+      if (validConfigs.length === 0) validConfigs.push(['B', 'B', 'B']);
 
-      // 2. OBTENER LA PAREJA UNIFICADA DE COSTO MÍNIMO ABSOLUTO
-      // En propagationEngine.js, dentro del loop de nodos:
-
-      // ... (después de construir validConfigs)
-
-      // 2. OBTENER LA PAREJA UNIFICADA DE COSTO MÍNIMO (PASANDO VALORES FIJOS)
-      const optimaPair = getHeuristicLowestCostPair(
-        validConfigs,
-        isUnary,
-        originalP, // Pasamos el valor fijo de P
-        originalQ  // Pasamos el valor fijo de Q
-      );
-      console.log(`\nCompuerta ${node.data.operator} (ID: ${node.id}) - Pareja Óptima Encontrada: P=${optimaPair.p}, Q=${optimaPair.q}, Z=${optimaPair.z}`);
+      // 2. OBTENER LA PAREJA ÓPTIMA (El motor forzará valores activos gracias a la penalización en logic.js)
+      const optimaPair = getHeuristicLowestCostPair(validConfigs, isUnary, originalP, originalQ);
 
       if (optimaPair) {
-        // ASIGNACIÓN DE VALORES INDIVIDUALES DERIVADOS DE LA TUPLA MÍNIMA GANADORA
         const padreP = currentNodes.find(n => n.id === idPadreP);
-        if (padreP) {
-          padreP.data.value = mergeInformation(originalP, optimaPair.p);
-          finalSelectorOptions[idPadreP] = [optimaPair.p]; // Fijar opción única del par mínimo
-        }
+        if (padreP) padreP.data.value = mergeInformation(originalP, optimaPair.p);
 
         if (idPadreQ) {
           const padreQ = currentNodes.find(n => n.id === idPadreQ);
-          if (padreQ) {
-            padreQ.data.value = mergeInformation(originalQ, optimaPair.q);
-            finalSelectorOptions[idPadreQ] = [optimaPair.q]; // Fijar opción única del par mínimo
-          }
+          if (padreQ) padreQ.data.value = mergeInformation(originalQ, optimaPair.q);
         }
 
-        // Asignar el valor Z unificado a la compuerta y a las hojas de salida
         node.data.value = mergeInformation(userInitialValues.get(node.id), optimaPair.z);
-        finalSelectorOptions[node.id] = [optimaPair.z];
 
         if (outgoingEdge) {
           const hojaNodo = currentNodes.find(n => n.id === outgoingEdge.target);
-          if (hojaNodo) {
-            hojaNodo.data.value = mergeInformation(userInitialValues.get(outgoingEdge.target), optimaPair.z);
-          }
-          finalSelectorOptions[outgoingEdge.target] = [optimaPair.z];
+          if (hojaNodo) hojaNodo.data.value = mergeInformation(userInitialValues.get(outgoingEdge.target), optimaPair.z);
         }
       }
     }
   });
 
-  // =========================================================================
-  // RETROPROPAGACIÓN DE VARIABLES ESPEJO EN EL LIENZO
-  // =========================================================================
+  // Retropropagación de variables espejo
   currentNodes.forEach((node, _, srcArray) => {
     if (node.type === 'variable') {
-      const twinNode = srcArray.find(
-        t => t.type === 'variable' && t.data.label === node.data.label && t.id !== node.id && t.data.value !== 'N'
-      );
+      const twinNode = srcArray.find(t => t.type === 'variable' && t.data.label === node.data.label && t.id !== node.id && t.data.value !== 'N');
       if (twinNode) {
-        const mergedVal = mergeInformation(node.data.value, twinNode.data.value);
-        node.data.value = mergedVal;
-        finalSelectorOptions[node.id] = [mergedVal]; // Sincronizar el dropdown de la copia
+        node.data.value = mergeInformation(node.data.value, twinNode.data.value);
       }
     }
   });
@@ -197,16 +153,14 @@ export const runCalculation = (nodes, edges) => {
     }
   });
 
-  // Mapear las opciones atómicas finales calculadas hacia el dropdown de ReactFlow
   const finalNodes = currentNodes.map(node => ({
     ...node,
     data: {
       ...node.data,
-      allowedOptions: finalSelectorOptions[node.id] || [...INV_V]
+      allowedOptions: Array.from(optionsMap.get(node.id) || ['N', 'T', 'F', 'B'])
     }
   }));
 
-  // Sincronizar cables estáticos finales
   const updatedEdges = edges.map(edge => {
     const src = finalNodes.find(n => n.id === edge.source);
     const val = src?.data?.value || 'N';

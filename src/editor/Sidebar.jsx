@@ -34,10 +34,10 @@ export default function Sidebar() {
       <button className="btn btn-calc" onClick={calculate}>CALCULAR</button>
 
       {/* Botones de Persistencia */}
-      <button className="btn" onClick={exportCircuit} style={{ background: '#3498db' }}>💾 Guardar Diagrama</button>
+      <button className="btn" onClick={exportCircuit} style={{ background: '#3498db' }}>Guardar Diagrama</button>
 
       <label className="btn" style={{ background: '#2980b9', cursor: 'pointer', display: 'block', textAlign: 'center', marginTop: '5px' }}>
-        📂 Cargar Diagrama
+        Cargar Diagrama
         <input type="file" onChange={handleLoad} accept=".json" style={{ display: 'none' }} />
       </label>
 
